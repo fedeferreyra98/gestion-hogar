@@ -8,7 +8,7 @@ Referencias: UC = `01-use-cases.md`, DM = `03-domain-model.md`, API = `04-api-in
 
 ## Fase 0 — Fundaciones
 
-**BL-001 · Scaffolding del monorepo [S] · —** · `TODO`
+**BL-001 · Scaffolding del monorepo [S] · —** · `DONE`
 Crear estructura de ADR-003/`02` (carpetas `backend`, `frontend`, `api`), `.gitignore`, `.editorconfig`, `CLAUDE.md` raíz apuntando a `docs/README.md`.
 CA: estructura creada; README raíz con cómo levantar el proyecto.
 

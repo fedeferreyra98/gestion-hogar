@@ -13,3 +13,8 @@ backend/out/
 frontend/node_modules/
 frontend/dist/
 frontend/coverage/
+.gradle/
+*.log
+node_modules/
+.env.*
+!.env.example
