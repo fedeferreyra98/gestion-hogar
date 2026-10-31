@@ -98,6 +98,12 @@
 ### ADR-012 — Fechas y zonas horarias
 - **Decisión**: fechas de negocio (`expense_date`, `expiry_date`) son `DATE` sin zona. Timestamps técnicos son `TIMESTAMPTZ` en UTC. Zona de negocio por defecto `America/Argentina/Buenos_Aires` (config del hogar) para calcular "hoy" en alertas de vencimiento.
 
+### ADR-013 — Prevención de filtración de secretos y datos reales en capas
+- **Contexto**: el sistema maneja sueldos y datos financieros del hogar; trabajan agentes automáticos que pueden copiar datos o credenciales a código, tests o docs.
+- **Decisión**: escáner propio sin dependencias (`scripts/check_secrets.py`) ejecutado en pre-commit, pre-push y CI (este último obligatorio). Reglas para credenciales, datos personales argentinos (CUIT/CBU/DNI con validación de dígito verificador) y archivos peligrosos; convenciones de datos mock en `07-sensitive-data.md`.
+- **Alternativas**: gitleaks/trufflehog (más cobertura de proveedores, pero dependencia externa y sin reglas de PII local). Pueden sumarse en CI sin reemplazar este escáner.
+- **Consecuencia**: los datos de prueba deben seguir convenciones mock; falsos positivos se resuelven con `allow-secret` o `.secrets-allow`.
+
 ## Convenciones de código
 
 **Backend**

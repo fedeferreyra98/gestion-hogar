@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Pre-push: segunda capa. Escanea todo lo que se va a subir (cubre commits hechos con --no-verify).
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+ZERO=0000000000000000000000000000000000000000
+EMPTY_TREE="$(git hash-object -t tree /dev/null)"
+
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [ "$local_sha" = "$ZERO" ] && continue            # borrado de rama: nada que escanear
+  base="$remote_sha"
+  if [ "$remote_sha" = "$ZERO" ] || ! git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
+    # rama nueva (o remoto desconocido): comparar contra main, o contra el árbol vacío
+    base="$(git merge-base "$local_sha" origin/main 2>/dev/null || echo "$EMPTY_TREE")"
+  fi
+  python3 -I "$ROOT/scripts/check_secrets.py" --range "$base" "$local_sha" || exit 1
+done
+exit 0

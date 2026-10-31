@@ -13,7 +13,7 @@ make setup     # crea .env e instala dependencias
 make up        # Postgres en localhost:5432 (espera al healthcheck)
 make backend   # API en http://localhost:8080  (otra terminal)
 make frontend  # UI en http://localhost:5173   (otra terminal)
-make seed      # crea el owner dev: owner@hogar.local / owner-password-123
+make seed      # crea el owner dev: owner@hogar.local / dev-owner-password-123
 # o todo junto: make dev
 ```
 

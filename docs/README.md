@@ -12,6 +12,7 @@ App para gestionar un hogar: listas de compra, histórico de gastos, stock con v
 | [04-api-interfaces.md](04-api-interfaces.md) | Contrato REST (endpoints, DTOs, errores) |
 | [05-backlog.md](05-backlog.md) | Tareas ordenadas con dependencias y criterios de aceptación |
 | [06-local-dev.md](06-local-dev.md) | Entorno local: comandos `make`, escalera de verificación, smoke test |
+| [07-sensitive-data.md](07-sensitive-data.md) | Política de secretos y datos reales, hooks de detección y convenciones de datos mock |
 
 ## Decisiones de producto ya tomadas
 

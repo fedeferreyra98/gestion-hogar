@@ -15,13 +15,22 @@ define require_frontend
 	@if [ "$(HAS_FRONTEND)" != "yes" ]; then echo "⚠ frontend no existe todavía (tarea BL-005). Salteando."; exit 0; fi
 endef
 
-.PHONY: help setup up down reset-db psql logs dev backend frontend seed \
+.PHONY: help setup hooks check-secrets test-hooks up down reset-db psql logs dev backend frontend seed \
         test test-fast test-backend test-frontend lint build smoke verify
 
 help: ## Lista los comandos
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-setup: ## Crea .env (si falta) e instala dependencias
+hooks: ## Instala los git hooks (pre-commit y pre-push: detección de secretos)
+	@git config core.hooksPath .githooks && chmod +x .githooks/* && echo "✔ git hooks instalados (.githooks)"
+
+check-secrets: ## Escanea todo el repo en busca de secretos/datos sensibles reales
+	python3 -I scripts/check_secrets.py --all
+
+test-hooks: ## Tests del escáner de secretos
+	python3 -I scripts/tests/test_check_secrets.py
+
+setup: hooks ## Instala hooks, crea .env (si falta) e instala dependencias
 	@test -f .env || (cp .env.example .env && echo "✔ .env creado desde .env.example")
 	@if [ "$(HAS_FRONTEND)" = "yes" ]; then cd frontend && npm ci; fi
 	@if [ "$(HAS_BACKEND)" = "yes" ]; then cd backend && ./gradlew --quiet dependencies > /dev/null; fi
@@ -86,5 +95,5 @@ build: ## Compila backend y frontend
 smoke: ## Nivel 3: prueba end-to-end contra el backend ya corriendo
 	./scripts/smoke.sh
 
-verify: lint test build ## Nivel 4: lo que debe pasar antes de abrir un PR
+verify: check-secrets test-hooks lint test build ## Nivel 4: lo que debe pasar antes de abrir un PR
 	@echo "✔ verify OK (para validar con el sistema corriendo: make up && make backend & make smoke)"

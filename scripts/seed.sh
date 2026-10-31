@@ -7,7 +7,7 @@ API="http://localhost:${SERVER_PORT:-8080}/api/v1"
 
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/auth/register-owner" \
   -H 'Content-Type: application/json' \
-  -d "{\"householdName\":\"${DEV_HOUSEHOLD_NAME:-HogarDev}\",\"email\":\"${DEV_OWNER_EMAIL:-owner@hogar.local}\",\"password\":\"${DEV_OWNER_PASSWORD:-owner-password-123}\",\"displayName\":\"${DEV_OWNER_NAME:-OwnerDev}\"}")
+  -d "{\"householdName\":\"${DEV_HOUSEHOLD_NAME:-HogarDev}\",\"email\":\"${DEV_OWNER_EMAIL:-owner@hogar.local}\",\"password\":\"${DEV_OWNER_PASSWORD:-dev-owner-password-123}\",\"displayName\":\"${DEV_OWNER_NAME:-OwnerDev}\"}")
 
 case "$code" in
   201) echo "✔ Owner creado: ${DEV_OWNER_EMAIL:-owner@hogar.local}" ;;

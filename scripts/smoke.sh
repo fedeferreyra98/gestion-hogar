@@ -8,7 +8,7 @@ set -uo pipefail
 BASE="${API_BASE:-http://localhost:${SERVER_PORT:-8080}}"
 API="$BASE/api/v1"
 EMAIL="${DEV_OWNER_EMAIL:-owner@hogar.local}"
-PASS="${DEV_OWNER_PASSWORD:-owner-password-123}"
+PASS="${DEV_OWNER_PASSWORD:-dev-owner-password-123}"
 
 PASSED=0; FAILED=0; SKIPPED=0
 ok()   { echo "  ✔ $1"; PASSED=$((PASSED+1)); }

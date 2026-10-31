@@ -36,6 +36,10 @@ CA: tipos generados versionados o generados en build; un hook de ejemplo funcion
 GitHub Actions: job backend (build+test) y frontend (lint+test+build).
 CA: pipeline verde en PR.
 
+**BL-014 · CI: escaneo de secretos obligatorio [S] · BL-007** · `TODO`
+Job `secrets` en GitHub Actions que ejecute `python3 -I scripts/check_secrets.py --all` y `make test-hooks` en cada PR; marcarlo como check requerido en la protección de rama de `main`. Activar *secret scanning* y *push protection* de GitHub en el repo. Los hooks locales ya existen (ver `07-sensitive-data.md`).
+CA: un PR con una credencial falsa de prueba (formato real, valor generado) falla el job y no se puede mergear; PR limpio pasa.
+
 **BL-012 · Localdev: base de tests rápida [M] · BL-002, BL-003** · `TODO`
 Implementar la escalera de verificación de `06-local-dev.md`: clase base `IntegrationTestBase` con Postgres singleton (Testcontainers reuse) y limpieza de tablas por test; convención de nombres `*UnitTest` / `*IntegrationTest`; tareas Gradle `ktlintCheck`; scripts npm `lint`, `typecheck`, `test` en el frontend.
 CA: `make test-fast` < 15 s y sin Docker; `make test-backend` reutiliza el contenedor entre corridas; `make verify` corre lint + tests + build en limpio.
@@ -145,7 +149,7 @@ CA: `docker compose --profile full up` deja la app funcional en localhost; `make
 
 > **Hito MVP**: BL-001 … BL-160 (incluye BL-012 y BL-013) en `DONE`.
 
-> **Definition of Done (toda tarea)**: `make verify` en verde; si toca endpoints, `make smoke` sin fallidos; docs/contrato actualizados si cambió algo.
+> **Definition of Done (toda tarea)**: `make verify` en verde (incluye el escaneo de secretos); si toca endpoints, `make smoke` sin fallidos; docs/contrato actualizados si cambió algo; datos de prueba según `07-sensitive-data.md`.
 
 ---
 
