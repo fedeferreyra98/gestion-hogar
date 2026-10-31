@@ -1,0 +1,15 @@
+.env
+.DS_Store
+.idea/
+.vscode/
+
+# Backend
+backend/build/
+backend/.gradle/
+backend/out/
+*.class
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
