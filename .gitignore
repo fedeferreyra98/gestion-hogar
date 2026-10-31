@@ -18,3 +18,4 @@ frontend/coverage/
 node_modules/
 .env.*
 !.env.example
+.kotlin/

@@ -12,7 +12,7 @@ Referencias: UC = `01-use-cases.md`, DM = `03-domain-model.md`, API = `04-api-in
 Crear estructura de ADR-003/`02` (carpetas `backend`, `frontend`, `api`), `.gitignore`, `.editorconfig`, `CLAUDE.md` raíz apuntando a `docs/README.md`.
 CA: estructura creada; README raíz con cómo levantar el proyecto.
 
-**BL-002 · Backend Spring Boot base [S] · BL-001** · `TODO`
+**BL-002 · Backend Spring Boot base [S] · BL-001** · `DONE`
 Gradle KTS, Spring Boot 3, Kotlin, JDK 21; dependencias: web, validation, data-jpa, security, flyway, postgres, actuator, springdoc, testcontainers, mockk, ktlint. Paquete `ar.hogar`. Endpoint `/actuator/health`.
 CA: `./gradlew build` pasa; app arranca contra Postgres; test de contexto con Testcontainers verde.
 

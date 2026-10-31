@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: hogar
+  datasource:
+    url: jdbc:postgresql://localhost:${DB_PORT:5432}/${DB_NAME:hogar}
+    username: ${DB_USER:hogar}
+    password: ${DB_PASSWORD:hogar}
+  flyway:
+    enabled: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
