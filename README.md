@@ -12,7 +12,7 @@ App de gestión del hogar: listas de compra, histórico de gastos, stock con ven
 | `docs/` | Documentación de producto, arquitectura y backlog |
 | `scripts/` | Smoke test, seed, escáner de secretos, generador de issues |
 
-> `backend/`, `frontend/` y `api/openapi.yaml` se completan con BL-002, BL-005 y BL-004. Hasta entonces los comandos `make` correspondientes avisan y se saltean.
+> `frontend/` y `api/openapi.yaml` se completan con BL-005 y BL-004. Hasta entonces los comandos `make` correspondientes avisan y se saltean.
 
 ## Requisitos
 
