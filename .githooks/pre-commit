@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Pre-commit: escanea lo que se está commiteando en busca de secretos/datos reales.
+# Instalación: make hooks   (git config core.hooksPath .githooks)
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "✘ pre-commit: python3 es requerido para check-secrets" >&2
+  exit 1
+fi
+exec python3 -I "$ROOT/scripts/check_secrets.py" --staged

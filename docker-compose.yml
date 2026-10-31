@@ -1,0 +1,25 @@
+# Entorno local de desarrollo. Ver docs/06-local-dev.md
+# Uso: make up   (equivale a: docker compose up -d --wait postgres)
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hogar-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-hogar}
+      POSTGRES_USER: ${DB_USER:-hogar}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-hogar}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hogar} -d ${DB_NAME:-hogar}"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    # Más rápido para dev (NO usar en producción): sin fsync estricto
+    command: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
+
+# BL-160 agregará los servicios `backend` y `frontend` bajo el profile "full".
+volumes:
+  pgdata:
