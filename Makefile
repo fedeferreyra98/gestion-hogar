@@ -15,11 +15,11 @@ define require_frontend
 	@if [ "$(HAS_FRONTEND)" != "yes" ]; then echo "⚠ frontend no existe todavía (tarea BL-005). Salteando."; exit 0; fi
 endef
 
-.PHONY: help setup hooks check-secrets test-hooks up down reset-db psql logs dev backend frontend seed \
+.PHONY: help setup hooks check-secrets test-hooks issues-preview issues-create issues-ready up down reset-db psql logs dev backend frontend seed \
         test test-fast test-backend test-frontend lint build smoke verify
 
 help: ## Lista los comandos
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z_-]+:.*?## ' Makefile | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 hooks: ## Instala los git hooks (pre-commit y pre-push: detección de secretos)
 	@git config core.hooksPath .githooks && chmod +x .githooks/* && echo "✔ git hooks instalados (.githooks)"
@@ -27,8 +27,17 @@ hooks: ## Instala los git hooks (pre-commit y pre-push: detección de secretos)
 check-secrets: ## Escanea todo el repo en busca de secretos/datos sensibles reales
 	python3 -I scripts/check_secrets.py --all
 
-test-hooks: ## Tests del escáner de secretos
-	python3 -I scripts/tests/test_check_secrets.py
+test-hooks: ## Tests de los scripts (escáner de secretos y generador de issues)
+	python3 -I -m unittest discover -s scripts/tests -p 'test_*.py'
+
+issues-preview: ## DRY-RUN: muestra qué issues de GitHub se crearían desde el backlog
+	python3 -I scripts/backlog_issues.py
+
+issues-create: ## Crea labels, milestones e issues en GitHub (idempotente)
+	python3 -I scripts/backlog_issues.py --apply
+
+issues-ready: ## Marca `ready` los issues cuyas dependencias ya están cerradas
+	python3 -I scripts/backlog_issues.py --refresh-ready --apply
 
 setup: hooks ## Instala hooks, crea .env (si falta) e instala dependencias
 	@test -f .env || (cp .env.example .env && echo "✔ .env creado desde .env.example")

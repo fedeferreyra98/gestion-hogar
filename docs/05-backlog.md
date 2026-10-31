@@ -44,10 +44,6 @@ CA: un PR con una credencial falsa de prueba (formato real, valor generado) fall
 Implementar la escalera de verificación de `06-local-dev.md`: clase base `IntegrationTestBase` con Postgres singleton (Testcontainers reuse) y limpieza de tablas por test; convención de nombres `*UnitTest` / `*IntegrationTest`; tareas Gradle `ktlintCheck`; scripts npm `lint`, `typecheck`, `test` en el frontend.
 CA: `make test-fast` < 15 s y sin Docker; `make test-backend` reutiliza el contenedor entre corridas; `make verify` corre lint + tests + build en limpio.
 
-**BL-013 · Localdev: verificación continua del smoke [S] · BL-102, BL-108** · `TODO`
-Extender `scripts/smoke.sh` a medida que se agregan endpoints (stock, gastos, sugerencias) y sumar un job opcional de CI que levante Postgres, arranque el backend y ejecute `make smoke`.
-CA: el smoke cubre UC-13 completo (lista → compra → gasto + stock) y falla si se rompe el flujo.
-
 **BL-008 · Módulo common: Money, errores, paginación [M] · BL-002** · `TODO`
 `Money` (Long+Currency), `CurrencyPolicy` (solo moneda base, ADR-004), jerarquía `DomainException`, `@RestControllerAdvice` a RFC 7807 con `code`, mappers de `Page`.
 CA: tests unitarios de Money y del mapeo de errores (400/404/409/422 con códigos de `04`).
@@ -102,6 +98,10 @@ CA: tests de agregación con varios meses y categorías; montos por moneda.
 **BL-111 · Seed de datos de desarrollo [S] · BL-108** · `TODO`
 Perfil `local` carga categorías comunes (Almacén, Lácteos, Limpieza, Verdura, Carne, Bebidas, Higiene) y ~30 productos con vida útil típica.
 CA: arranque con perfil `local` los carga una sola vez (idempotente).
+
+**BL-013 · Localdev: verificación continua del smoke [S] · BL-102, BL-108** · `TODO`
+Extender `scripts/smoke.sh` a medida que se agregan endpoints (stock, gastos, sugerencias) y sumar un job opcional de CI que levante Postgres, arranque el backend y ejecute `make smoke`.
+CA: el smoke cubre UC-13 completo (lista → compra → gasto + stock) y falla si se rompe el flujo.
 
 ---
 
@@ -190,14 +190,37 @@ CA: coincide con la API; estado "todo saldado".
 
 ## Fase 3 — Extras (nice-to-have)
 
-**BL-301 · Multimoneda: diseño [M]** · `TODO` — ADR nuevo: tipo de cambio manual por fecha vs API; ingresos en otra moneda; conversión para contribución y reportes. Entregable: ADR + actualización de `03` y `04`.
-**BL-302 · Multimoneda: implementación backend [L] · BL-301** · `TODO` — `fx_rate`, gastos en USD/ARS, balances por moneda, relajar `CurrencyPolicy`.
-**BL-303 · Multimoneda: UI [M] · BL-302** · `TODO` — selector de moneda, totales por moneda, tipo de cambio.
-**BL-304 · Override manual de contribución [S] · BL-202** · `TODO` — UC-52.
+**BL-301 · Multimoneda: diseño [M]** · `TODO`
+ADR nuevo: tipo de cambio manual por fecha vs API externa; ingresos en otra moneda; conversión para contribución y reportes. Entregable: ADR + actualización de `03` y `04`.
+CA: ADR-0xx aceptado en `02-architecture-decisions.md`; `03` y `04` describen `fx_rate`, campos nuevos de `expense` y endpoints; sin código de aplicación.
+
+**BL-302 · Multimoneda: implementación backend [L] · BL-301** · `TODO`
+`fx_rate`, gastos en USD/ARS, balances por moneda, relajar `CurrencyPolicy`.
+CA: se puede crear un gasto en USD con tipo de cambio manual; los balances siguen separados por moneda; migraciones sin romper datos existentes; tests de conversión y de `CurrencyPolicy`.
+
+**BL-303 · Multimoneda: UI [M] · BL-302** · `TODO`
+Selector de moneda en gastos, totales por moneda en listados y balances, carga del tipo de cambio.
+CA: un gasto en USD se carga y se muestra con su moneda; los totales no mezclan monedas; tests de formularios con MSW.
+
+**BL-304 · Override manual de contribución [S] · BL-202** · `TODO`
+UC-52: el owner fija porcentajes manuales que reemplazan el cálculo automático (`contribution_override`).
+CA: los % manuales deben sumar 100 (422 si no); `GET /contribution` los usa cuando existen; solo el owner puede definirlos; los gastos ya creados no cambian (ADR-006).
+
 **BL-305 · Notificaciones web push de vencimiento [M]** · `TODO`
+Enviar notificaciones web push a los miembros suscriptos cuando haya productos por vencer o vencidos (UC-34, fase P3). Requiere suscripción desde la PWA y claves VAPID por entorno.
+CA: el job diario envía una notificación por miembro con el resumen de vencimientos; no se reenvía lo ya notificado; claves VAPID solo por variables de entorno (sin secretos en el repo); tests con un servicio de push falso.
+
 **BL-306 · Tiempo real en listas (SSE) [M]** · `TODO`
+Los cambios en una lista de compra (ítems agregados, tildados, eliminados) se propagan por Server-Sent Events a los demás miembros que la tienen abierta.
+CA: dos clientes ven los cambios del otro sin refrescar; la conexión SSE se autentica con el mismo JWT; reconexión automática en el frontend; test de integración con dos suscriptores.
+
 **BL-307 · Despliegue cloud + backups automáticos [M]** · `TODO`
+Desplegar backend, frontend y Postgres gestionado en el proveedor elegido (ver riesgo R5 en `02`), con variables de entorno y secretos del proveedor, y backups automáticos de la base.
+CA: la app funciona en una URL pública con HTTPS; los secretos viven solo en el gestor del proveedor; backup diario verificado con una restauración de prueba; runbook en `docs/`.
+
 **BL-308 · Presupuestos por categoría y alertas [M]** · `TODO`
+Presupuesto mensual por categoría de gasto y aviso cuando se supera un umbral (ej. 80% y 100%).
+CA: CRUD de presupuestos por categoría y mes; endpoint con consumo vs presupuesto; la UI muestra el estado y marca las categorías excedidas; tests de cálculo con gastos en distintos meses.
 
 ---
 
