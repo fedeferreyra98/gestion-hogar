@@ -1,0 +1,35 @@
+# Perfil de desarrollo local. Variables definidas en .env (ver .env.example).
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:${DB_PORT:5432}/${DB_NAME:hogar}
+    username: ${DB_USER:hogar}
+    password: ${DB_PASSWORD:hogar}
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate # nunca `update`
+    show-sql: ${LOG_SQL:false}
+  devtools:
+    restart:
+      enabled: true
+
+app:
+  security:
+    permit-unimplemented-api: true
+  jwt:
+    secret: ${JWT_SECRET}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+
+management:
+  endpoint:
+    health:
+      show-details: when-authorized
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html

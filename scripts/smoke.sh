@@ -21,9 +21,9 @@ req() {
   [ -n "${TOKEN:-}" ] && auth=(-H "Authorization: Bearer $TOKEN")
   local out
   if [ -n "$data" ]; then
-    out=$(curl -s -w '\n%{http_code}' -X "$method" "$API$path" -H 'Content-Type: application/json' "${auth[@]}" -d "$data")
+    out=$(curl -s -w '\n%{http_code}' -X "$method" "$API$path" -H 'Content-Type: application/json' ${auth[@]+"${auth[@]}"} -d "$data")
   else
-    out=$(curl -s -w '\n%{http_code}' -X "$method" "$API$path" "${auth[@]}")
+    out=$(curl -s -w '\n%{http_code}' -X "$method" "$API$path" ${auth[@]+"${auth[@]}"})
   fi
   STATUS="${out##*$'\n'}"; BODY="${out%$'\n'*}"
 }

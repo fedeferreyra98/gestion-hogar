@@ -42,7 +42,7 @@ Reglas para agentes:
 | Comandos unificados | `Makefile` | Hecho |
 | Smoke test E2E incremental | `scripts/smoke.sh` | Hecho (se activa por secciones) |
 | Seed del owner dev | `scripts/seed.sh` | Hecho |
-| Perfil Spring `local` (`application-local.yml`) | `backend/` | BL-002/BL-003 |
+| Perfil Spring `local` (`application-local.yml`) y `test` | `backend/` | Hecho |
 | Datos demo de catálogo (idempotente) | `backend/` | BL-111 |
 | Tests de integración con Testcontainers reutilizables | `backend/` | BL-002/BL-012 |
 | Proxy de Vite al backend / CORS local | `frontend/` | BL-005 |
