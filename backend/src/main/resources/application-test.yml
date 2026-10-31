@@ -1,0 +1,13 @@
+# Perfil de tests de integración. La conexión la provee Testcontainers (@ServiceConnection).
+spring:
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+app:
+  jwt:
+    secret: test-only-secret-test-only-secret-test-only-secret
+  cors:
+    allowed-origins: http://localhost:5173

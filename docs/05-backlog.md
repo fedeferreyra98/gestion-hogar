@@ -16,7 +16,7 @@ CA: estructura creada; README raíz con cómo levantar el proyecto.
 Gradle KTS, Spring Boot 3, Kotlin, JDK 21; dependencias: web, validation, data-jpa, security, flyway, postgres, actuator, springdoc, testcontainers, mockk, ktlint. Paquete `ar.hogar`. Endpoint `/actuator/health`.
 CA: `./gradlew build` pasa; app arranca contra Postgres; test de contexto con Testcontainers verde.
 
-**BL-003 · Localdev: perfil Spring `local` y conexión a Postgres [S] · BL-002** · `TODO`
+**BL-003 · Localdev: perfil Spring `local` y conexión a Postgres [S] · BL-002** · `DONE`
 La infraestructura ya existe (`docker-compose.yml`, `.env.example`, `Makefile`, `scripts/`; ver `06-local-dev.md`). Falta el lado Spring: `application-local.yml` y `application-test.yml` según la sección "Especificación para el backend" de `06`, devtools, Swagger UI solo en `local`.
 CA: `make up && make backend` arranca y `/actuator/health` responde 200; `make seed` crea el owner dev; `make smoke` pasa sin fallidos (con secciones salteadas).
 
