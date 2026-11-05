@@ -20,7 +20,7 @@ CA: `./gradlew build` pasa; app arranca contra Postgres; test de contexto con Te
 La infraestructura ya existe (`docker-compose.yml`, `.env.example`, `Makefile`, `scripts/`; ver `06-local-dev.md`). Falta el lado Spring: `application-local.yml` y `application-test.yml` según la sección "Especificación para el backend" de `06`, devtools, Swagger UI solo en `local`.
 CA: `make up && make backend` arranca y `/actuator/health` responde 200; `make seed` crea el owner dev; `make smoke` pasa sin fallidos (con secciones salteadas).
 
-**BL-004 · OpenAPI inicial [M] · BL-001** · `TODO`
+**BL-004 · OpenAPI inicial [M] · BL-001** · `DONE`
 Redactar `api/openapi.yaml` (3.1) desde `04-api-interfaces.md` para Fase 1 (auth, catálogo, listas, compras, gastos, stock). Incluir esquemas `Money`, `Page`, `Problem`.
 CA: validado con un linter (`redocly lint`/`spectral`); sin referencias rotas.
 

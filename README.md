@@ -12,8 +12,6 @@ App de gestión del hogar: listas de compra, histórico de gastos, stock con ven
 | `docs/` | Documentación de producto, arquitectura y backlog |
 | `scripts/` | Smoke test, seed, escáner de secretos, generador de issues |
 
-> `api/openapi.yaml` se completa con BL-004 (`frontend/` ya existe desde BL-005). Hasta entonces los comandos `make` que dependen de él avisan y se saltean.
-
 ## Requisitos
 
 JDK 21, Node 20+, Docker (Compose v2), `make`, `curl`, `python3`.
