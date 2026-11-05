@@ -41,7 +41,7 @@ CA: pipeline verde en PR.
 Job `secrets` en GitHub Actions que ejecute `python3 -I scripts/check_secrets.py --all` y `make test-hooks` en cada PR; marcarlo como check requerido en la protección de rama de `main`. Activar *secret scanning* y *push protection* de GitHub en el repo. Los hooks locales ya existen (ver `07-sensitive-data.md`).
 CA: un PR con una credencial falsa de prueba (formato real, valor generado) falla el job y no se puede mergear; PR limpio pasa.
 
-**BL-012 · Localdev: base de tests rápida [M] · BL-002, BL-003** · `TODO`
+**BL-012 · Localdev: base de tests rápida [M] · BL-002, BL-003** · `DONE`
 Implementar la escalera de verificación de `06-local-dev.md`: clase base `IntegrationTestBase` con Postgres singleton (Testcontainers reuse) y limpieza de tablas por test; convención de nombres `*UnitTest` / `*IntegrationTest`; tareas Gradle `ktlintCheck`; scripts npm `lint`, `typecheck`, `test` en el frontend.
 CA: `make test-fast` < 15 s y sin Docker; `make test-backend` reutiliza el contenedor entre corridas; `make verify` corre lint + tests + build en limpio.
 
