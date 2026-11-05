@@ -44,7 +44,7 @@ CA: un PR con una credencial falsa de prueba (formato real, valor generado) fall
 Implementar la escalera de verificación de `06-local-dev.md`: clase base `IntegrationTestBase` con Postgres singleton (Testcontainers reuse) y limpieza de tablas por test; convención de nombres `*UnitTest` / `*IntegrationTest`; tareas Gradle `ktlintCheck`; scripts npm `lint`, `typecheck`, `test` en el frontend.
 CA: `make test-fast` < 15 s y sin Docker; `make test-backend` reutiliza el contenedor entre corridas; `make verify` corre lint + tests + build en limpio.
 
-**BL-008 · Módulo common: Money, errores, paginación [M] · BL-002** · `TODO`
+**BL-008 · Módulo common: Money, errores, paginación [M] · BL-002** · `DONE`
 `Money` (Long+Currency), `CurrencyPolicy` (solo moneda base, ADR-004), jerarquía `DomainException`, `@RestControllerAdvice` a RFC 7807 con `code`, mappers de `Page`.
 CA: tests unitarios de Money y del mapeo de errores (400/404/409/422 con códigos de `04`).
 
