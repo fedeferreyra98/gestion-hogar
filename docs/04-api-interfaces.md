@@ -180,3 +180,5 @@ Balance = { byCurrency: [{ currency, members: [{memberId, paid: Money, owed: Mon
 ## Cambios de contrato
 
 _(registrar aquí cualquier ajuste posterior al contrato: fecha, tarea, cambio, motivo.)_
+
+- BL-004: `api/openapi.yaml` (OpenAPI 3.1) pasa a ser la fuente de verdad de Fase 1. Aclaraciones sin cambio de comportamiento: `Page<T>` se modela como `Page` + `allOf` por tipo (`ProductPage`, `ExpensePage`, …); `Problem.code` es el enum `ProblemCode`; `ShoppingListStatus` = `OPEN|COMPLETED|ARCHIVED` y `ExpenseSource` = `MANUAL|PURCHASE`; `ExpenseInput` omite los campos de reparto (`shared`, `splitMode`, `customSplits`) hasta Fase 2.
