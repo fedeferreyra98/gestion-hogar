@@ -56,7 +56,7 @@ CA: ≥ 8 tests; sin dependencias de Spring.
 
 ## Fase 1 (MVP) — Backend
 
-**BL-101 · Migración V1: household, member, refresh_token [S] · BL-003** · `TODO`
+**BL-101 · Migración V1: household, member, refresh_token [S] · BL-003** · `DONE`
 CA: Flyway aplica en Testcontainers; constraints de DM presentes.
 
 **BL-102 · Auth: registro owner, login, refresh, logout [L] · BL-101, BL-008** · `TODO`
