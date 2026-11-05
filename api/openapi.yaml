@@ -1,0 +1,1522 @@
+openapi: 3.1.0
+info:
+  title: Gestión del Hogar API
+  version: 0.1.0
+  summary: Contrato REST de Fase 1 (auth, catálogo, listas, compras, gastos, stock).
+  description: |
+    Derivado de `docs/04-api-interfaces.md`. Fuente de verdad del contrato.
+
+    - Dinero: siempre `Money` (entero en unidades menores + moneda), nunca float (ADR-004).
+    - Cantidades: string decimal (`"1.500"`) para evitar float en JSON.
+    - Errores: RFC 7807 (`application/problem+json`) con el esquema `Problem`.
+    - Paginación: `page` (0-based), `size` (default 20, máx 100), `sort` (`campo,asc|desc`).
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: /api/v1
+    description: Base path relativo
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+    description: Registro, login y tokens
+  - name: Members
+    description: Perfil, miembros y hogar
+  - name: Catalog
+    description: Categorías y productos
+  - name: ShoppingLists
+    description: Listas de compra e ítems
+  - name: Purchases
+    description: Compras
+  - name: Expenses
+    description: Gastos y reportes
+  - name: Stock
+    description: Stock y vencimientos
+
+paths:
+  /auth/register-owner:
+    post:
+      tags: [Auth]
+      operationId: registerOwner
+      summary: Crea el hogar y su owner (solo si no hay hogar)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterOwnerRequest' }
+      responses:
+        '201':
+          description: Hogar y owner creados
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Inicia sesión
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Tokens emitidos
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshTokens
+      summary: Rota el refresh token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: Tokens nuevos
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Revoca el refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '204': { description: Sesión cerrada }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me:
+    get:
+      tags: [Members]
+      operationId: getMe
+      summary: Perfil y hogar del usuario autenticado
+      responses:
+        '200':
+          description: Perfil
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /members:
+    get:
+      tags: [Members]
+      operationId: listMembers
+      summary: Miembros del hogar
+      responses:
+        '200':
+          description: Miembros
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Member' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Members]
+      operationId: createMember
+      summary: Crea un miembro (OWNER)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateMemberRequest' }
+      responses:
+        '201':
+          description: Miembro creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /members/{id}:
+    patch:
+      tags: [Members]
+      operationId: updateMember
+      summary: Edita nombre/activo (OWNER)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateMemberRequest' }
+      responses:
+        '200':
+          description: Miembro actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /household:
+    put:
+      tags: [Members]
+      operationId: updateHousehold
+      summary: Configuración del hogar (OWNER)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateHouseholdRequest' }
+      responses:
+        '200':
+          description: Hogar actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Household' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /categories:
+    get:
+      tags: [Catalog]
+      operationId: listCategories
+      summary: Lista categorías
+      responses:
+        '200':
+          description: Categorías
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Category' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Catalog]
+      operationId: createCategory
+      summary: Crea una categoría
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CategoryInput' }
+      responses:
+        '201':
+          description: Categoría creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /categories/{id}:
+    put:
+      tags: [Catalog]
+      operationId: updateCategory
+      summary: Renombra una categoría
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CategoryInput' }
+      responses:
+        '200':
+          description: Categoría actualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Catalog]
+      operationId: deleteCategory
+      summary: Elimina una categoría (409 si tiene productos)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204': { description: Eliminada }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /products:
+    get:
+      tags: [Catalog]
+      operationId: listProducts
+      summary: Busca productos por nombre
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: categoryId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: includeArchived
+          in: query
+          schema: { type: boolean, default: false }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: Página de productos
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Catalog]
+      operationId: createProduct
+      summary: Crea un producto
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductInput' }
+      responses:
+        '201':
+          description: Producto creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /products/{id}:
+    put:
+      tags: [Catalog]
+      operationId: updateProduct
+      summary: Reemplaza un producto
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductInput' }
+      responses:
+        '200':
+          description: Producto actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /products/{id}/archive:
+    post:
+      tags: [Catalog]
+      operationId: archiveProduct
+      summary: Archiva un producto
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Producto archivado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /products/{id}/unarchive:
+    post:
+      tags: [Catalog]
+      operationId: unarchiveProduct
+      summary: Desarchiva un producto
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Producto desarchivado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /products/{id}/price-history:
+    get:
+      tags: [Expenses]
+      operationId: getPriceHistory
+      summary: Histórico de precios unitarios de un producto
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Puntos de precio
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PricePoint' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /shopping-lists:
+    get:
+      tags: [ShoppingLists]
+      operationId: listShoppingLists
+      summary: Lista las listas de compra
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ShoppingListStatus' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: Página de listas
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShoppingListSummaryPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [ShoppingLists]
+      operationId: createShoppingList
+      summary: Crea una lista
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShoppingListInput' }
+      responses:
+        '201':
+          description: Lista creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShoppingList' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /shopping-lists/suggestions:
+    get:
+      tags: [ShoppingLists]
+      operationId: getShoppingSuggestions
+      summary: Sugerencias de compra (UC-12)
+      responses:
+        '200':
+          description: Sugerencias
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Suggestion' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /shopping-lists/{id}:
+    get:
+      tags: [ShoppingLists]
+      operationId: getShoppingList
+      summary: Detalle de una lista
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Lista
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShoppingList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [ShoppingLists]
+      operationId: updateShoppingList
+      summary: Renombra o archiva (solo OPEN→ARCHIVED)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateShoppingListRequest' }
+      responses:
+        '200':
+          description: Lista actualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShoppingList' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+  /shopping-lists/{id}/duplicate:
+    post:
+      tags: [ShoppingLists]
+      operationId: duplicateShoppingList
+      summary: Duplica una lista (copia ítems sin tildar)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DuplicateListRequest' }
+      responses:
+        '201':
+          description: Lista duplicada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShoppingList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /shopping-lists/{id}/items:
+    post:
+      tags: [ShoppingLists]
+      operationId: addShoppingListItem
+      summary: Agrega un ítem (suma cantidad si ya existe producto+unidad)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShoppingListItemInput' }
+      responses:
+        '201':
+          description: Ítem agregado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShoppingListItem' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+  /shopping-lists/{id}/items/{itemId}:
+    patch:
+      tags: [ShoppingLists]
+      operationId: updateShoppingListItem
+      summary: Edita un ítem
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - $ref: '#/components/parameters/ItemIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateShoppingListItemRequest' }
+      responses:
+        '200':
+          description: Ítem actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShoppingListItem' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+    delete:
+      tags: [ShoppingLists]
+      operationId: deleteShoppingListItem
+      summary: Elimina un ítem
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - $ref: '#/components/parameters/ItemIdPath'
+      responses:
+        '204': { description: Eliminado }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /shopping-lists/{id}/complete:
+    post:
+      tags: [ShoppingLists]
+      operationId: completeShoppingList
+      summary: Completa la lista y registra la compra (UC-13)
+      description: Seguro de reintentar; si ya se completó responde 422 `LIST_NOT_OPEN`.
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CompleteListRequest' }
+      responses:
+        '201':
+          description: Compra registrada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Purchase' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /purchases:
+    get:
+      tags: [Purchases]
+      operationId: listPurchases
+      summary: Lista compras
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - name: store
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: Página de compras
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PurchaseSummaryPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Purchases]
+      operationId: createPurchase
+      summary: Registra una compra sin lista (UC-14)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePurchaseRequest' }
+      responses:
+        '201':
+          description: Compra registrada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Purchase' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+  /purchases/{id}:
+    get:
+      tags: [Purchases]
+      operationId: getPurchase
+      summary: Detalle de una compra
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Compra
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Purchase' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Purchases]
+      operationId: updatePurchase
+      summary: Edita una compra (recalcula el gasto asociado)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdatePurchaseRequest' }
+      responses:
+        '200':
+          description: Compra actualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Purchase' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /expenses:
+    get:
+      tags: [Expenses]
+      operationId: listExpenses
+      summary: Lista gastos (incluye total filtrado por moneda)
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - name: categoryId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: paidBy
+          in: query
+          schema: { type: string, format: uuid }
+        - name: source
+          in: query
+          schema: { $ref: '#/components/schemas/ExpenseSource' }
+        - name: q
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: Página de gastos
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExpensePage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Expenses]
+      operationId: createExpense
+      summary: Crea un gasto manual
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExpenseInput' }
+      responses:
+        '201':
+          description: Gasto creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+  /expenses/summary:
+    get:
+      tags: [Expenses]
+      operationId: getExpenseSummary
+      summary: Resumen de gastos agrupado (UC-23)
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - name: groupBy
+          in: query
+          required: true
+          schema: { type: string, enum: [month, category, store] }
+      responses:
+        '200':
+          description: Filas del resumen
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SummaryRow' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /expenses/{id}:
+    get:
+      tags: [Expenses]
+      operationId: getExpense
+      summary: Detalle de un gasto
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Gasto
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Expenses]
+      operationId: updateExpense
+      summary: Edita un gasto manual (409/422 si source=PURCHASE)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExpenseInput' }
+      responses:
+        '200':
+          description: Gasto actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+    delete:
+      tags: [Expenses]
+      operationId: deleteExpense
+      summary: Elimina (soft delete) un gasto manual
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204': { description: Eliminado }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /stock:
+    get:
+      tags: [Stock]
+      operationId: listStock
+      summary: Lista lotes de stock (orden por vencimiento asc)
+      parameters:
+        - name: productId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: categoryId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: location
+          in: query
+          schema: { type: string }
+        - name: expiry
+          in: query
+          schema: { type: string, enum: [EXPIRED, EXPIRING_SOON, OK] }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/StockStatus' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: Página de lotes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StockItemPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Stock]
+      operationId: createStockItem
+      summary: Alta manual de stock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateStockItemRequest' }
+      responses:
+        '201':
+          description: Lote creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StockItem' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /stock/consume:
+    post:
+      tags: [Stock]
+      operationId: consumeStockByProduct
+      summary: Consume por producto (FEFO)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConsumeByProductRequest' }
+      responses:
+        '200':
+          description: Lotes consumidos
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsumeResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+  /stock/alerts:
+    get:
+      tags: [Stock]
+      operationId: getStockAlerts
+      summary: Alertas de vencimiento
+      responses:
+        '200':
+          description: Lotes vencidos y por vencer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StockAlerts' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /stock/summary:
+    get:
+      tags: [Stock]
+      operationId: getStockSummary
+      summary: Stock agrupado por producto
+      responses:
+        '200':
+          description: Resumen
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/StockSummaryRow' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /stock/{id}:
+    patch:
+      tags: [Stock]
+      operationId: updateStockItem
+      summary: Edita un lote (quantity = ajuste ADJUST)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateStockItemRequest' }
+      responses:
+        '200':
+          description: Lote actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StockItem' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /stock/{id}/consume:
+    post:
+      tags: [Stock]
+      operationId: consumeStockItem
+      summary: Consume de un lote específico
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConsumeItemRequest' }
+      responses:
+        '200':
+          description: Lote actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StockItem' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+  /stock/{id}/discard:
+    post:
+      tags: [Stock]
+      operationId: discardStockItem
+      summary: Descarta un lote
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DiscardRequest' }
+      responses:
+        '200':
+          description: Lote descartado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StockItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ItemIdPath:
+      name: itemId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      description: Número de página (0-based)
+      schema: { type: integer, minimum: 0, default: 0 }
+    Size:
+      name: size
+      in: query
+      description: Tamaño de página
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Sort:
+      name: sort
+      in: query
+      description: '`campo,asc|desc`'
+      schema: { type: string, examples: ['name,asc'] }
+    From:
+      name: from
+      in: query
+      description: Fecha desde (inclusive)
+      schema: { type: string, format: date }
+    To:
+      name: to
+      in: query
+      description: Fecha hasta (inclusive)
+      schema: { type: string, format: date }
+  responses:
+    ValidationError:
+      description: Validación fallida (`VALIDATION_ERROR`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: No autenticado (`UNAUTHORIZED`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Sin permisos (`FORBIDDEN`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: No encontrado (`NOT_FOUND`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Conflicto (`CONFLICT`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    BusinessRule:
+      description: Regla de negocio violada (`code` específico, ver `ProblemCode`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    # ---- Comunes ----
+    Money:
+      type: object
+      description: Dinero como entero en unidades menores + moneda (ADR-004). Nunca float.
+      required: [amountMinor, currency]
+      properties:
+        amountMinor:
+          type: integer
+          format: int64
+          description: Monto en unidades menores (p. ej. centavos)
+          examples: [123450]
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          description: Código ISO 4217
+          examples: [ARS]
+    Decimal:
+      type: string
+      pattern: '^-?\d+(\.\d+)?$'
+      description: Cantidad decimal como string para evitar float en JSON
+      examples: ['1.500']
+    Unit:
+      type: string
+      enum: [UNIT, KG, G, L, ML, PACK]
+    Page:
+      type: object
+      description: Envoltorio de paginación. Cada endpoint lo especializa tipando `content`.
+      required: [content, page, size, totalElements, totalPages]
+      properties:
+        content:
+          type: array
+          items: {}
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1 }
+        totalElements: { type: integer, format: int64, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
+    ProblemCode:
+      type: string
+      description: Código estable de error de aplicación
+      enum:
+        - VALIDATION_ERROR
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - NOT_FOUND
+        - CONFLICT
+        - BUSINESS_RULE
+        - LIST_NOT_OPEN
+        - INSUFFICIENT_STOCK
+        - CONTRIBUTION_INCOMPLETE
+        - UNSUPPORTED_CURRENCY
+        - SPLIT_SUM_MISMATCH
+        - HOUSEHOLD_EXISTS
+    Problem:
+      type: object
+      description: RFC 7807 (`application/problem+json`)
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, default: about:blank }
+        title: { type: string }
+        status: { type: integer, minimum: 100, maximum: 599 }
+        code: { $ref: '#/components/schemas/ProblemCode' }
+        detail: { type: string }
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/FieldError' }
+      examples:
+        - type: about:blank
+          title: Validation failed
+          status: 400
+          code: VALIDATION_ERROR
+          detail: One or more fields are invalid
+          errors:
+            - field: quantity
+              message: must be greater than 0
+    FieldError:
+      type: object
+      required: [field, message]
+      properties:
+        field: { type: string }
+        message: { type: string }
+    Ref:
+      type: object
+      description: Referencia mínima a una entidad
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+
+    # ---- Auth y miembros ----
+    RegisterOwnerRequest:
+      type: object
+      required: [householdName, email, password, displayName]
+      properties:
+        householdName: { type: string, minLength: 1 }
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 8 }
+        displayName: { type: string, minLength: 1 }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string }
+    AuthTokens:
+      type: object
+      required: [accessToken, refreshToken, expiresInSeconds]
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresInSeconds: { type: integer, minimum: 1 }
+    Role:
+      type: string
+      enum: [OWNER, MEMBER]
+    Member:
+      type: object
+      required: [id, email, displayName, role, active]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        active: { type: boolean }
+    MemberRef:
+      type: object
+      required: [id, displayName]
+      properties:
+        id: { type: string, format: uuid }
+        displayName: { type: string }
+    CreateMemberRequest:
+      type: object
+      required: [email, displayName, password]
+      properties:
+        email: { type: string, format: email }
+        displayName: { type: string, minLength: 1 }
+        password: { type: string, format: password, minLength: 8 }
+    UpdateMemberRequest:
+      type: object
+      properties:
+        displayName: { type: string, minLength: 1 }
+        active: { type: boolean }
+    Household:
+      type: object
+      required: [id, name, baseCurrency, timezone, expiryWarningDays, sharePurchasesByDefault]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        baseCurrency: { type: string, pattern: '^[A-Z]{3}$' }
+        timezone: { type: string, examples: [America/Argentina/Buenos_Aires] }
+        expiryWarningDays: { type: integer, minimum: 0 }
+        sharePurchasesByDefault: { type: boolean }
+    UpdateHouseholdRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        expiryWarningDays: { type: integer, minimum: 0 }
+        sharePurchasesByDefault: { type: boolean }
+    Me:
+      type: object
+      required: [member, household]
+      properties:
+        member: { $ref: '#/components/schemas/Member' }
+        household: { $ref: '#/components/schemas/Household' }
+
+    # ---- Catálogo ----
+    Category:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    CategoryInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+    ProductInput:
+      type: object
+      required: [name, defaultUnit]
+      properties:
+        name: { type: string, minLength: 1 }
+        categoryId: { type: [string, 'null'], format: uuid }
+        defaultUnit: { $ref: '#/components/schemas/Unit' }
+        defaultShelfLifeDays: { type: [integer, 'null'], minimum: 0 }
+    Product:
+      allOf:
+        - $ref: '#/components/schemas/ProductInput'
+        - type: object
+          required: [id, archived]
+          properties:
+            id: { type: string, format: uuid }
+            archived: { type: boolean }
+    ProductPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            content:
+              type: array
+              items: { $ref: '#/components/schemas/Product' }
+
+    # ---- Listas de compra ----
+    ShoppingListStatus:
+      type: string
+      enum: [OPEN, COMPLETED, ARCHIVED]
+    ShoppingListInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+    UpdateShoppingListRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        status:
+          type: string
+          enum: [ARCHIVED]
+    DuplicateListRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+    ShoppingListItemInput:
+      type: object
+      required: [productId, quantity, unit]
+      properties:
+        productId: { type: string, format: uuid }
+        quantity: { $ref: '#/components/schemas/Decimal' }
+        unit: { $ref: '#/components/schemas/Unit' }
+        estimatedPrice: { $ref: '#/components/schemas/Money' }
+        note: { type: string }
+    UpdateShoppingListItemRequest:
+      type: object
+      properties:
+        quantity: { $ref: '#/components/schemas/Decimal' }
+        unit: { $ref: '#/components/schemas/Unit' }
+        estimatedPrice: { $ref: '#/components/schemas/Money' }
+        note: { type: string }
+        checked: { type: boolean }
+    ShoppingListItem:
+      type: object
+      required: [id, product, quantity, unit, checked]
+      properties:
+        id: { type: string, format: uuid }
+        product: { $ref: '#/components/schemas/Ref' }
+        quantity: { $ref: '#/components/schemas/Decimal' }
+        unit: { $ref: '#/components/schemas/Unit' }
+        estimatedPrice: { $ref: '#/components/schemas/Money' }
+        note: { type: string }
+        checked: { type: boolean }
+        checkedAt: { type: string, format: date-time }
+    ShoppingList:
+      type: object
+      required: [id, name, status, createdBy, createdAt, items]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/ShoppingListStatus' }
+        createdBy: { type: string, format: uuid, description: Id del miembro creador }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ShoppingListItem' }
+    ShoppingListSummary:
+      type: object
+      required: [id, name, status, itemCount, checkedCount, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/ShoppingListStatus' }
+        itemCount: { type: integer, minimum: 0 }
+        checkedCount: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+    ShoppingListSummaryPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            content:
+              type: array
+              items: { $ref: '#/components/schemas/ShoppingListSummary' }
+    Suggestion:
+      type: object
+      required: [product, reason]
+      properties:
+        product: { $ref: '#/components/schemas/Ref' }
+        reason: { type: string, enum: [OUT_OF_STOCK, EXPIRING, EXPIRED] }
+        detail: { type: string }
+    LeftoverAction:
+      type: string
+      enum: [NEW_LIST, DISCARD]
+    PurchaseItemInput:
+      type: object
+      required: [productId, quantity, unit, unitPrice]
+      properties:
+        productId: { type: string, format: uuid }
+        quantity: { $ref: '#/components/schemas/Decimal' }
+        unit: { $ref: '#/components/schemas/Unit' }
+        unitPrice: { $ref: '#/components/schemas/Money' }
+        expiryDate: { type: string, format: date }
+    CompleteListItem:
+      allOf:
+        - $ref: '#/components/schemas/PurchaseItemInput'
+        - type: object
+          properties:
+            listItemId: { type: string, format: uuid }
+    CompleteListRequest:
+      type: object
+      required: [purchaseDate, paidBy, total, items, leftoverAction]
+      properties:
+        purchaseDate: { type: string, format: date }
+        store: { type: string }
+        paidBy: { type: string, format: uuid, description: Id del miembro que pagó }
+        total: { $ref: '#/components/schemas/Money' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CompleteListItem' }
+        leftoverAction: { $ref: '#/components/schemas/LeftoverAction' }
+        shared:
+          type: boolean
+          description: Solo Fase 2; default según configuración del hogar
+
+    # ---- Compras ----
+    CreatePurchaseRequest:
+      type: object
+      required: [purchaseDate, paidBy, total, items]
+      properties:
+        purchaseDate: { type: string, format: date }
+        store: { type: string }
+        paidBy: { type: string, format: uuid }
+        total: { $ref: '#/components/schemas/Money' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PurchaseItemInput' }
+        shared:
+          type: boolean
+          description: Solo Fase 2; default según configuración del hogar
+    UpdatePurchaseRequest:
+      type: object
+      required: [items]
+      properties:
+        store: { type: string }
+        purchaseDate: { type: string, format: date }
+        paidBy: { type: string, format: uuid }
+        total: { $ref: '#/components/schemas/Money' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PurchaseItemInput' }
+    PurchaseItem:
+      type: object
+      required: [id, product, quantity, unit, unitPrice, total]
+      properties:
+        id: { type: string, format: uuid }
+        product: { $ref: '#/components/schemas/Ref' }
+        quantity: { $ref: '#/components/schemas/Decimal' }
+        unit: { $ref: '#/components/schemas/Unit' }
+        unitPrice: { $ref: '#/components/schemas/Money' }
+        total: { $ref: '#/components/schemas/Money' }
+        expiryDate: { type: string, format: date }
+    Purchase:
+      type: object
+      required: [id, purchaseDate, total, paidBy, expenseId, items]
+      properties:
+        id: { type: string, format: uuid }
+        shoppingListId: { type: string, format: uuid }
+        store: { type: string }
+        purchaseDate: { type: string, format: date }
+        total: { $ref: '#/components/schemas/Money' }
+        paidBy: { $ref: '#/components/schemas/MemberRef' }
+        expenseId: { type: string, format: uuid }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PurchaseItem' }
+    PurchaseSummary:
+      type: object
+      required: [id, purchaseDate, total, itemCount, paidBy]
+      properties:
+        id: { type: string, format: uuid }
+        store: { type: string }
+        purchaseDate: { type: string, format: date }
+        total: { $ref: '#/components/schemas/Money' }
+        itemCount: { type: integer, minimum: 0 }
+        paidBy: { $ref: '#/components/schemas/MemberRef' }
+    PurchaseSummaryPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            content:
+              type: array
+              items: { $ref: '#/components/schemas/PurchaseSummary' }
+
+    # ---- Gastos ----
+    ExpenseSource:
+      type: string
+      enum: [MANUAL, PURCHASE]
+    ExpenseInput:
+      type: object
+      description: Campos de reparto (`shared`, `splitMode`, `customSplits`) son de Fase 2 y no se incluyen aún.
+      required: [description, amount, expenseDate, paidBy]
+      properties:
+        description: { type: string, minLength: 1 }
+        amount: { $ref: '#/components/schemas/Money' }
+        expenseDate: { type: string, format: date }
+        categoryId: { type: [string, 'null'], format: uuid }
+        paidBy: { type: string, format: uuid }
+    Expense:
+      allOf:
+        - $ref: '#/components/schemas/ExpenseInput'
+        - type: object
+          required: [id, source, createdAt]
+          properties:
+            id: { type: string, format: uuid }
+            source: { $ref: '#/components/schemas/ExpenseSource' }
+            createdAt: { type: string, format: date-time }
+    ExpensePage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [totalFiltered]
+          properties:
+            content:
+              type: array
+              items: { $ref: '#/components/schemas/Expense' }
+            totalFiltered:
+              type: array
+              description: Total del filtro, uno por moneda
+              items: { $ref: '#/components/schemas/Money' }
+    SummaryRow:
+      type: object
+      required: [key, label, total]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        total: { $ref: '#/components/schemas/Money' }
+    PricePoint:
+      type: object
+      required: [date, unitPrice]
+      properties:
+        date: { type: string, format: date }
+        store: { type: string }
+        unitPrice: { $ref: '#/components/schemas/Money' }
+
+    # ---- Stock ----
+    StockStatus:
+      type: string
+      enum: [ACTIVE, CONSUMED, DISCARDED]
+    ExpiryStatus:
+      type: string
+      enum: [EXPIRED, EXPIRING_SOON, OK, NO_EXPIRY]
+    StockItem:
+      type: object
+      required: [id, product, quantity, initialQuantity, unit, expiryStatus, status, addedAt]
+      properties:
+        id: { type: string, format: uuid }
+        product: { $ref: '#/components/schemas/Ref' }
+        quantity: { $ref: '#/components/schemas/Decimal' }
+        initialQuantity: { $ref: '#/components/schemas/Decimal' }
+        unit: { $ref: '#/components/schemas/Unit' }
+        expiryDate: { type: string, format: date }
+        expiryStatus: { $ref: '#/components/schemas/ExpiryStatus' }
+        location: { type: string }
+        status: { $ref: '#/components/schemas/StockStatus' }
+        addedAt: { type: string, format: date-time }
+    StockItemPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            content:
+              type: array
+              items: { $ref: '#/components/schemas/StockItem' }
+    CreateStockItemRequest:
+      type: object
+      required: [productId, quantity, unit]
+      properties:
+        productId: { type: string, format: uuid }
+        quantity: { $ref: '#/components/schemas/Decimal' }
+        unit: { $ref: '#/components/schemas/Unit' }
+        expiryDate: { type: string, format: date }
+        location: { type: string }
+    UpdateStockItemRequest:
+      type: object
+      properties:
+        expiryDate: { type: string, format: date }
+        location: { type: string }
+        quantity: { $ref: '#/components/schemas/Decimal' }
+    ConsumeByProductRequest:
+      type: object
+      required: [productId, quantity, unit]
+      properties:
+        productId: { type: string, format: uuid }
+        quantity: { $ref: '#/components/schemas/Decimal' }
+        unit: { $ref: '#/components/schemas/Unit' }
+    ConsumeItemRequest:
+      type: object
+      required: [quantity]
+      properties:
+        quantity: { $ref: '#/components/schemas/Decimal' }
+    ConsumeResult:
+      type: object
+      required: [consumed]
+      properties:
+        consumed:
+          type: array
+          items:
+            type: object
+            required: [stockItemId, quantity]
+            properties:
+              stockItemId: { type: string, format: uuid }
+              quantity: { $ref: '#/components/schemas/Decimal' }
+    DiscardRequest:
+      type: object
+      properties:
+        reason: { type: string }
+    StockAlerts:
+      type: object
+      required: [expired, expiringSoon]
+      properties:
+        expired:
+          type: array
+          items: { $ref: '#/components/schemas/StockItem' }
+        expiringSoon:
+          type: array
+          items: { $ref: '#/components/schemas/StockItem' }
+    StockSummaryRow:
+      type: object
+      required: [product, totalQuantity, unit]
+      properties:
+        product: { $ref: '#/components/schemas/Ref' }
+        totalQuantity: { $ref: '#/components/schemas/Decimal' }
+        unit: { $ref: '#/components/schemas/Unit' }
+        nearestExpiry: { type: string, format: date }
