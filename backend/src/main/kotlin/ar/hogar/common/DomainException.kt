@@ -17,6 +17,11 @@ class ValidationException(
     val errors: List<FieldError> = emptyList(),
 ) : DomainException("VALIDATION_ERROR", message)
 
+/** 401 `UNAUTHORIZED` (credenciales o refresh token inválidos; mensaje genérico). */
+class UnauthorizedException(
+    message: String = "Invalid credentials",
+) : DomainException("UNAUTHORIZED", message)
+
 /** 404 `NOT_FOUND`. */
 class NotFoundException(
     message: String,
