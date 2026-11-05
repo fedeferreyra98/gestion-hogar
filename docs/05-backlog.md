@@ -49,7 +49,7 @@ CA: `make test-fast` < 15 s y sin Docker; `make test-backend` reutiliza el conte
 `Money` (Long+Currency), `CurrencyPolicy` (solo moneda base, ADR-004), jerarquía `DomainException`, `@RestControllerAdvice` a RFC 7807 con `code`, mappers de `Page`.
 CA: tests unitarios de Money y del mapeo de errores (400/404/409/422 con códigos de `04`).
 
-**BL-009 · Allocator (mayor resto) [M] · BL-002** · `TODO`
+**BL-009 · Allocator (mayor resto) [M] · BL-002** · `DONE`
 Implementar `Allocator.allocate` según DM §Split. Tests de propiedades (suma exacta, determinismo, ejemplos 100/3, pesos cero, ceros).
 CA: ≥ 8 tests; sin dependencias de Spring.
 
