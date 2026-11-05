@@ -24,9 +24,10 @@ CA: `make up && make backend` arranca y `/actuator/health` responde 200; `make s
 Redactar `api/openapi.yaml` (3.1) desde `04-api-interfaces.md` para Fase 1 (auth, catálogo, listas, compras, gastos, stock). Incluir esquemas `Money`, `Page`, `Problem`.
 CA: validado con un linter (`redocly lint`/`spectral`); sin referencias rotas.
 
-**BL-005 · Frontend base [S] · BL-001** · `TODO`
+**BL-005 · Frontend base [S] · BL-001** · `DONE`
 Vite + React + TS strict, Tailwind, shadcn/ui, React Router, TanStack Query, ESLint+Prettier, Vitest+RTL+MSW. Layout con navegación (Listas, Gastos, Stock) mobile-first.
 CA: `npm run dev/build/test/lint` pasan; PWA manifest básico.
+Supuestos: shadcn/ui configurado a mano (`components.json` + `Button`), sin CLI; PWA = `manifest.webmanifest` + ícono SVG, sin service worker; Tailwind v4; React Router en modo declarativo (`BrowserRouter`); el dev server proxea `/api` a `localhost:8080`.
 
 **BL-006 · Cliente API generado [S] · BL-004, BL-005** · `TODO`
 Script `npm run gen:api` con `openapi-typescript` + fetch wrapper (`openapi-fetch`) con manejo de token y errores Problem.

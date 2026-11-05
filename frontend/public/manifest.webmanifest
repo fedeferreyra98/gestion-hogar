@@ -1,0 +1,14 @@
+{
+  "name": "Gestión del Hogar",
+  "short_name": "Hogar",
+  "description": "Listas de compra, gastos y stock del hogar",
+  "lang": "es",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0f766e",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
