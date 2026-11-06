@@ -178,12 +178,12 @@ class AuthIntegrationTest {
     @Test
     fun `valid access token passes authentication`() {
         val access = tokens(register())["accessToken"].asText()
-        // /me aún no existe (BL-103): autenticado => 404, no 401
+        // Autenticado => 200 en /me (BL-103), no 401
         val status =
             mockMvc
                 .get("/api/v1/me") { header("Authorization", "Bearer $access") }
                 .andReturn()
                 .response.status
-        assertEquals(404, status)
+        assertEquals(200, status)
     }
 }

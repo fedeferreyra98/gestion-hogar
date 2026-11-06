@@ -65,7 +65,7 @@ UC-01, UC-02. Spring Security stateless, JWT HS256 (secreto por env), refresh co
 Supuestos: el segundo registro → 409 `CONFLICT` (UC-01); refresh token = 32 bytes aleatorios, SHA-256 en BD; reuso de un refresh rotado → 401 (sin revocar la familia); la unicidad de hogar se chequea por `count` (sin lock; aceptable con un hogar local).
 CA: tests de integración: registro (409 si ya existe hogar), login ok/inválido (401), refresh rota token (reuso del viejo → 401), rutas protegidas sin token → 401.
 
-**BL-103 · Miembros y hogar [M] · BL-102** · `TODO`
+**BL-103 · Miembros y hogar [M] · BL-102** · `DONE`
 UC-03: `GET/POST/PATCH /members`, `PUT /household`, `GET /me`. Roles (`@PreAuthorize`).
 CA: MEMBER no puede crear (403); desactivado no loguea.
 
