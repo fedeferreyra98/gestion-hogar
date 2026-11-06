@@ -12,3 +12,4 @@ App de gestión del hogar (listas de compra, gastos, stock con vencimientos, gas
 - Cambios de API: primero `api/openapi.yaml` y `docs/04-api-interfaces.md`.
 - Idioma: UI en español, código/API en inglés.
 - Commits convencionales; una rama y PR por tarea (`feature/BL-xxx-slug`).
+- **Cada PR cierra su issue**: la descripción del PR debe incluir `Closes #N` (una línea propia), con `N` = número del issue de la tarea. Buscalo con `gh issue list --state all --search "BL-xxx:" --json number,title` (los títulos empiezan con `BL-xxx:`). Así el issue se cierra solo al mergear y `make issues-ready` desbloquea las tareas dependientes. Si no existe el issue, avisá en vez de inventar el número.
