@@ -51,6 +51,30 @@ Ejemplo: `val sample = "30.123.457"  // allow-secret: fixture del test del escá
 2. Si fue un dato personal, borrarlo del historial (`git filter-repo`) y avisar a la persona afectada.
 3. Agregar una regla o test al escáner si el patrón no estaba cubierto.
 
+## Configuración obligatoria en GitHub (BL-014)
+
+El job `secrets` (`.github/workflows/ci.yml`) ejecuta `python3 -I scripts/check_secrets.py --all` y `make test-hooks` en cada PR y push a `main`. Para que el control sea imposible de omitir al mergear y a nivel de push remoto, un administrador del repositorio debe aplicar la siguiente configuración en GitHub:
+
+### 1. Activar Secret Scanning y Push Protection del repositorio
+
+1. En GitHub, abrir el repositorio y navegar a **Settings** → **Code security** (en la barra lateral izquierda, sección *Security*).
+2. En el bloque **Secret scanning**, hacer clic en **Enable** para activar la detección nativa de secretos conocidos de proveedores.
+3. Debajo de *Secret scanning*, en **Push protection**, hacer clic en **Enable** para bloquear en el `git push` cualquier commit que contenga secretos de alta confianza detectados por GitHub.
+
+### 2. Marcar el job `secrets` como check requerido en la protección de `main`
+
+1. Ir a **Settings** → **Branches** (o **Rules** → **Rulesets**).
+2. En **Branch protection rules**, hacer clic en **Add branch protection rule** (o editar la regla existente para `main`):
+   - **Branch name pattern**: `main`
+   - Marcar **Require a pull request before merging**.
+   - Marcar **Require status checks to pass before merging**.
+   - Marcar **Require branches to be up to date before merging** (recomendado).
+   - En el buscador de status checks, buscar y seleccionar **`secrets`** (y opcionalmente `Backend` y `Frontend`).
+   - Marcar **Do not allow bypassing the above settings** para que la regla aplique también a administradores.
+3. Hacer clic en **Create** / **Save changes**.
+
+> **Nota**: Para que el check `secrets` aparezca en el buscador de GitHub, el workflow `.github/workflows/ci.yml` con el job `secrets` debe haberse ejecutado al menos una vez (por ejemplo, en el PR de `BL-014`).
+
 ## Límites conocidos
 
 - Es heurístico: puede dar falsos positivos y no detecta secretos con formato desconocido y baja entropía (ej. una contraseña corta y común).
