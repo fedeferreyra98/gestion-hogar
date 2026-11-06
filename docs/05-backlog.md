@@ -60,8 +60,9 @@ CA: ≥ 8 tests; sin dependencias de Spring.
 **BL-101 · Migración V1: household, member, refresh_token [S] · BL-003** · `DONE`
 CA: Flyway aplica en Testcontainers; constraints de DM presentes.
 
-**BL-102 · Auth: registro owner, login, refresh, logout [L] · BL-101, BL-008** · `TODO`
+**BL-102 · Auth: registro owner, login, refresh, logout [L] · BL-101, BL-008** · `DONE`
 UC-01, UC-02. Spring Security stateless, JWT HS256 (secreto por env), refresh con hash y rotación (ADR-008), BCrypt.
+Supuestos: el segundo registro → 409 `CONFLICT` (UC-01); refresh token = 32 bytes aleatorios, SHA-256 en BD; reuso de un refresh rotado → 401 (sin revocar la familia); la unicidad de hogar se chequea por `count` (sin lock; aceptable con un hogar local).
 CA: tests de integración: registro (409 si ya existe hogar), login ok/inválido (401), refresh rota token (reuso del viejo → 401), rutas protegidas sin token → 401.
 
 **BL-103 · Miembros y hogar [M] · BL-102** · `TODO`

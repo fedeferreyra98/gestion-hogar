@@ -25,6 +25,7 @@ class ApiExceptionHandler {
                     ex.message,
                     ex.errors,
                 )
+            is UnauthorizedException -> problem(HttpStatus.UNAUTHORIZED, ex.code, "Unauthorized", ex.message)
             is NotFoundException -> problem(HttpStatus.NOT_FOUND, ex.code, "Not found", ex.message)
             is ConflictException -> problem(HttpStatus.CONFLICT, ex.code, "Conflict", ex.message)
             is BusinessRuleException ->

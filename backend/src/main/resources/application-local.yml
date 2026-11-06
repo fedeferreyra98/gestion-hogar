@@ -15,8 +15,6 @@ spring:
       enabled: true
 
 app:
-  security:
-    permit-unimplemented-api: true
   jwt:
     secret: ${JWT_SECRET}
   cors:

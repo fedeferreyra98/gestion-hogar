@@ -53,7 +53,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AuthTokens' }
         '400': { $ref: '#/components/responses/ValidationError' }
-        '422': { $ref: '#/components/responses/BusinessRule' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /auth/login:
     post:
       tags: [Auth]
