@@ -4,7 +4,9 @@ let inMemoryToken: string | null = null
 let customProvider: TokenGetter | null = null
 
 /**
- * Obtiene el token de acceso actual en memoria.
+ * Obtiene el token guardado en memoria (el seteado con `setAccessToken`).
+ * OJO: NO refleja el token que se envía si hay un proveedor configurado con valor;
+ * para eso usar `resolveAccessToken`, que es lo que usa el cliente HTTP.
  */
 export function getAccessToken(): string | null {
   return inMemoryToken
@@ -32,11 +34,13 @@ export function setTokenProvider(provider: TokenGetter | null): void {
 }
 
 /**
- * Resuelve el token actual usando el proveedor configurado o el token en memoria.
+ * Resuelve el token que se envía: el del proveedor si devuelve un valor (prioridad);
+ * si el proveedor no existe o devuelve null/undefined, cae al token en memoria.
  */
 export async function resolveAccessToken(): Promise<string | null> {
   if (customProvider) {
-    return await customProvider()
+    const provided = await customProvider()
+    if (provided) return provided
   }
   return inMemoryToken
 }

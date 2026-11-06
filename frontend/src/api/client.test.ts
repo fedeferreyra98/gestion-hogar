@@ -31,6 +31,26 @@ describe('token management', () => {
     const token = await resolveAccessToken()
     expect(token).toBe('dynamic-jwt-token')
   })
+
+  it('falls back to in-memory token when provider returns null', async () => {
+    setAccessToken('memory-token')
+    setTokenProvider(async () => null)
+    expect(await resolveAccessToken()).toBe('memory-token')
+  })
+
+  it('prefers provider token over in-memory token', async () => {
+    setAccessToken('memory-token')
+    setTokenProvider(() => 'provider-token')
+    expect(await resolveAccessToken()).toBe('provider-token')
+  })
+
+  it('resetTokenState clears both memory token and provider', async () => {
+    setAccessToken('memory-token')
+    setTokenProvider(() => 'provider-token')
+    resetTokenState()
+    expect(getAccessToken()).toBeNull()
+    expect(await resolveAccessToken()).toBeNull()
+  })
 })
 
 describe('errors & Problem details', () => {
