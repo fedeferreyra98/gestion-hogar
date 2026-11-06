@@ -14,6 +14,8 @@ interface MemberRepository : JpaRepository<Member, UUID> {
     fun findByEmailIgnoreCase(
         @Param("email") email: String,
     ): Member?
+
+    fun findByHouseholdIdOrderByCreatedAtAsc(householdId: UUID): List<Member>
 }
 
 interface RefreshTokenRepository : JpaRepository<RefreshToken, UUID> { // allow-secret: tipo, no un valor
@@ -27,6 +29,17 @@ interface RefreshTokenRepository : JpaRepository<RefreshToken, UUID> { // allow-
     )
     fun revoke(
         @Param("id") id: UUID,
+        @Param("now") now: Instant,
+    ): Int
+
+    /** Revoca todas las sesiones vivas de un miembro (al desactivarlo). */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(
+        "update RefreshToken t set t.revokedAt = :now, t.updatedAt = :now " +
+            "where t.memberId = :memberId and t.revokedAt is null",
+    )
+    fun revokeAllForMember(
+        @Param("memberId") memberId: UUID,
         @Param("now") now: Instant,
     ): Int
 }
