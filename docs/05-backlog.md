@@ -82,9 +82,10 @@ CA: tests de cada endpoint de `04` §Listas excepto `suggestions` y `complete`; 
 `stock_item`, `stock_movement`; UC-30–34. Alta manual, consumo FEFO por producto y por lote, descarte, alertas, summary, `expiryStatus` calculado con zona del hogar.
 CA: tests unitarios de FEFO (con NULLs al final, consumo que cruza varios lotes, `INSUFFICIENT_STOCK`); tests de estados de vencimiento con reloj inyectable (`Clock`).
 
-**BL-107 · Migración V5 + gastos manuales e histórico [M] · BL-104, BL-008** · `TODO`
+**BL-107 · Migración V5 + gastos manuales e histórico [M] · BL-104, BL-008** · `DONE`
 `expense`; UC-20, UC-21. Filtros, paginación, `totalFiltered`, soft delete, restricción para `source=PURCHASE`. Campos de split/shared se persisten pero la lógica de reparto queda para P2 (devolver `shared=false`).
 CA: tests de filtros combinados; índices presentes; moneda distinta a la base → 422 `UNSUPPORTED_CURRENCY`.
+Supuestos: sin tabla `expense_split` (Fase 2); `shared`/`split_mode` son columnas y la API siempre devuelve `shared=false`; `PUT/DELETE` de un gasto `PURCHASE` → 409 `CONFLICT`; la moneda base sale del hogar (`CurrencyPolicy` por request); `GET /expenses/summary` queda para BL-110.
 
 **BL-108 · Compras + completar lista (UC-13/14/22) [L] · BL-105, BL-106, BL-107** · `TODO`
 Migración V6 (`purchase`, `purchase_item`). `PurchaseService.completeList` transaccional según DM §Completar lista y ADR-007. `POST /purchases`, `GET/PUT /purchases`.

@@ -657,6 +657,10 @@ paths:
         - name: q
           in: query
           schema: { type: string }
+        - name: shared
+          in: query
+          description: Reparto es Fase 2; en el MVP todos los gastos son `shared=false`.
+          schema: { type: boolean }
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
         - $ref: '#/components/parameters/Sort'
@@ -1405,6 +1409,7 @@ components:
           properties:
             id: { type: string, format: uuid }
             source: { $ref: '#/components/schemas/ExpenseSource' }
+            shared: { type: boolean, description: 'Siempre false hasta Fase 2.' }
             createdAt: { type: string, format: date-time }
     ExpensePage:
       allOf:
