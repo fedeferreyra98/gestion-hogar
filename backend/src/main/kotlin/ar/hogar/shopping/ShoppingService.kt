@@ -21,6 +21,9 @@ import java.math.BigDecimal
 import java.time.Clock
 import java.util.UUID
 
+private const val MAX_NAME = 160
+private const val COPY_SUFFIX = " (copia)"
+
 /** UC-10, UC-11, UC-15: listas de compra. Solo una lista `OPEN` admite cambios. */
 @Service
 class ShoppingService(
@@ -92,7 +95,7 @@ class ShoppingService(
         req: DuplicateListRequest?,
     ): ShoppingListDto {
         val source = list(householdId, id)
-        val copy = newList(householdId, memberId, req?.name?.trim() ?: "${source.name} (copia)")
+        val copy = newList(householdId, memberId, req?.name?.trim() ?: copyName(source.name))
         val now = clock.instant()
         val copied =
             items.findByList(source.id).filter { !it.checked }.map {
@@ -126,27 +129,21 @@ class ShoppingService(
         val unit = req.unit!!
         val quantity = req.quantity!!.setScale(3)
         val now = clock.instant()
-        val existing = items.findByListIdAndProductIdAndUnit(id, product.id, unit)
-        val item =
-            if (existing != null) {
-                existing.quantity = (existing.quantity + quantity).also { checkRange(it) }
-                if (price != null) existing.setPrice(price)
-                req.note?.let { existing.note = it.trim().ifEmpty { null } }
-                existing.updatedAt = now
-                existing
-            } else {
-                ShoppingListItem(
-                    id = UUID.randomUUID(),
-                    listId = id,
-                    productId = product.id,
-                    quantity = quantity,
-                    unit = unit,
-                    note = req.note?.trim()?.ifEmpty { null },
-                    createdAt = now,
-                    updatedAt = now,
-                ).also { if (price != null) it.setPrice(price) }
-            }
-        return flush { items.saveAndFlush(item) }.toDto(product.name)
+        if (quantity >= BigDecimal(MAX_QUANTITY)) throw tooLarge()
+        val itemId =
+            items.upsertAddingQuantity(
+                id = UUID.randomUUID(),
+                listId = id,
+                productId = product.id,
+                quantity = quantity,
+                unit = unit.name,
+                priceMinor = price?.amountMinor,
+                priceCurrency = price?.currency?.currencyCode,
+                note = req.note?.trim()?.ifEmpty { null },
+                noteProvided = req.note != null,
+                now = now,
+            ) ?: throw tooLarge()
+        return items.findById(itemId).get().toDto(product.name)
     }
 
     @Transactional
@@ -160,7 +157,10 @@ class ShoppingService(
         requireOpen(list)
         val item = item(id, itemId)
         val now = clock.instant()
-        req.quantity?.let { item.quantity = it.setScale(3) }
+        req.quantity?.let {
+            if (it.setScale(3) >= BigDecimal(MAX_QUANTITY)) throw tooLarge()
+            item.quantity = it.setScale(3)
+        }
         req.unit?.let { item.unit = it }
         req.estimatedPrice?.let { item.setPrice(validPrice(householdId, it)) }
         req.note?.let { item.note = it.trim().ifEmpty { null } }
@@ -251,9 +251,10 @@ class ShoppingService(
         estimatedPriceCurrency = m.currency.currencyCode
     }
 
-    private fun checkRange(q: BigDecimal) {
-        if (q >= BigDecimal("1000000000")) throw BusinessRuleException("BUSINESS_RULE", "Quantity too large")
-    }
+    /** `"<nombre> (copia)"` truncando el nombre original para respetar el máximo de 160. */
+    private fun copyName(name: String): String = name.take(MAX_NAME - COPY_SUFFIX.length).trimEnd() + COPY_SUFFIX
+
+    private fun tooLarge() = BusinessRuleException("BUSINESS_RULE", "Quantity too large")
 
     /** Carrera entre dos altas del mismo producto+unidad: el índice único responde 409. */
     private fun <T> flush(block: () -> T): T =

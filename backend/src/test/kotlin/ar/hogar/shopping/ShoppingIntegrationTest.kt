@@ -329,4 +329,136 @@ class ShoppingIntegrationTest : IntegrationTestBase() {
         assertEquals(400, call(HttpMethod.GET, "shopping-lists?sort=bogus", bearer = t).response.status)
         assertEquals(400, call(HttpMethod.GET, "shopping-lists?status=NOPE", bearer = t).response.status)
     }
+
+    @Test
+    fun `parallel adds of the same product and unit never lose quantity`() {
+        val t = registerOwner()
+        val list = newList(t)
+        val leche = product(t, "Leche")
+        val n = 10
+        val pool =
+            java.util.concurrent.Executors
+                .newFixedThreadPool(n)
+        val start = java.util.concurrent.CountDownLatch(1)
+        try {
+            val results =
+                (1..n).map {
+                    pool.submit<Int> {
+                        start.await()
+                        addItem(t, list, leche, "1", "L").response.status
+                    }
+                }
+            start.countDown()
+            assertEquals(List(n) { 201 }, results.map { it.get() })
+        } finally {
+            pool.shutdown()
+        }
+        val items = body(call(HttpMethod.GET, "shopping-lists/$list", bearer = t))["items"]
+        assertEquals(1, items.size())
+        assertEquals("10.000", items[0]["quantity"].asText())
+    }
+
+    @Test
+    fun `summing past the maximum quantity is rejected and leaves the item untouched`() {
+        val t = registerOwner()
+        val list = newList(t)
+        val p = product(t, "Harina")
+        assertEquals("999999999.000", body(addItem(t, list, p, "999999999"))["quantity"].asText())
+        val over = addItem(t, list, p, "1")
+        assertEquals(422, over.response.status)
+        val items = body(call(HttpMethod.GET, "shopping-lists/$list", bearer = t))["items"]
+        assertEquals("999999999.000", items[0]["quantity"].asText())
+        assertEquals(400, addItem(t, list, p, "1000000000").response.status)
+    }
+
+    @Test
+    fun `blank names are rejected on patch and duplicate, default copy name fits in 160 chars`() {
+        val t = registerOwner()
+        val long = "x".repeat(160)
+        val list = newList(t, long)
+        assertEquals(400, call(HttpMethod.PATCH, "shopping-lists/$list", mapOf("name" to "   "), t).response.status)
+        assertEquals(
+            400,
+            call(HttpMethod.POST, "shopping-lists/$list/duplicate", mapOf("name" to "   "), t).response.status,
+        )
+        val dup = body(call(HttpMethod.POST, "shopping-lists/$list/duplicate", null, t))
+        assertEquals(160, dup["name"].asText().length)
+        assertEquals(true, dup["name"].asText().endsWith(" (copia)"))
+        assertEquals(
+            400,
+            call(HttpMethod.PATCH, "shopping-lists/$list", mapOf("name" to "y".repeat(161)), t).response.status,
+        )
+    }
+
+    @Test
+    fun `item of another list is not found`() {
+        val t = registerOwner()
+        val a = newList(t, "A")
+        val b = newList(t, "B")
+        val item = body(addItem(t, a, product(t, "P")))["id"].asText()
+        assertEquals(
+            404,
+            call(HttpMethod.PATCH, "shopping-lists/$b/items/$item", mapOf("checked" to true), t).response.status,
+        )
+        assertEquals(404, call(HttpMethod.DELETE, "shopping-lists/$b/items/$item", bearer = t).response.status)
+        assertEquals(1, body(call(HttpMethod.GET, "shopping-lists/$a", bearer = t))["items"].size())
+    }
+
+    @Test
+    fun `data from another household is invisible and untouchable`() {
+        val t = registerOwner()
+        val otherHousehold = UUID.randomUUID()
+        val otherMember = UUID.randomUUID()
+        val otherProduct = UUID.randomUUID()
+        val otherList = UUID.randomUUID()
+        val otherItem = UUID.randomUUID()
+        jdbc.update(
+            "INSERT INTO household (id, name, created_at, updated_at) VALUES (?, 'Otra casa', now(), now())",
+            otherHousehold,
+        )
+        jdbc.update(
+            "INSERT INTO member (id, household_id, email, password_hash, display_name, role, created_at, updated_at) " +
+                "VALUES (?, ?, 'otro@example.test', 'x', 'Otro', 'OWNER', now(), now())",
+            otherMember,
+            otherHousehold,
+        )
+        jdbc.update(
+            "INSERT INTO product (id, household_id, name, default_unit, created_at, updated_at) " +
+                "VALUES (?, ?, 'Ajeno', 'UNIT', now(), now())",
+            otherProduct,
+            otherHousehold,
+        )
+        jdbc.update(
+            "INSERT INTO shopping_list (id, household_id, name, created_by, created_at, updated_at) " +
+                "VALUES (?, ?, 'Ajena', ?, now(), now())",
+            otherList,
+            otherHousehold,
+            otherMember,
+        )
+        jdbc.update(
+            "INSERT INTO shopping_list_item (id, list_id, product_id, quantity, unit, created_at, updated_at) " +
+                "VALUES (?, ?, ?, 1, 'UNIT', now(), now())",
+            otherItem,
+            otherList,
+            otherProduct,
+        )
+
+        assertEquals(0, body(call(HttpMethod.GET, "shopping-lists", bearer = t))["totalElements"].asInt())
+        assertEquals(404, call(HttpMethod.GET, "shopping-lists/$otherList", bearer = t).response.status)
+        assertEquals(404, call(HttpMethod.PATCH, "shopping-lists/$otherList", mapOf("name" to "X"), t).response.status)
+        assertEquals(404, call(HttpMethod.POST, "shopping-lists/$otherList/duplicate", null, t).response.status)
+        assertEquals(404, addItem(t, otherList.toString(), product(t, "Propio")).response.status)
+        assertEquals(
+            404,
+            call(HttpMethod.PATCH, "shopping-lists/$otherList/items/$otherItem", mapOf("checked" to true), t)
+                .response.status,
+        )
+        assertEquals(
+            404,
+            call(HttpMethod.DELETE, "shopping-lists/$otherList/items/$otherItem", bearer = t).response.status,
+        )
+        // producto de otro hogar en una lista propia
+        assertEquals(404, addItem(t, newList(t), otherProduct.toString()).response.status)
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM shopping_list_item", Int::class.java))
+    }
 }

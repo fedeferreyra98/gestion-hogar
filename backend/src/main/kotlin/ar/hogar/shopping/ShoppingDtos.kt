@@ -30,12 +30,18 @@ data class ShoppingListInput(
 )
 
 data class UpdateShoppingListRequest(
-    @field:Size(min = 1, max = 160) val name: String? = null,
+    @field:Pattern(
+        regexp = "(?s).*\\S.*",
+        message = "must not be blank",
+    ) @field:Size(max = 160) val name: String? = null,
     val status: ShoppingListStatus? = null,
 )
 
 data class DuplicateListRequest(
-    @field:Size(min = 1, max = 160) val name: String? = null,
+    @field:Pattern(
+        regexp = "(?s).*\\S.*",
+        message = "must not be blank",
+    ) @field:Size(max = 160) val name: String? = null,
 )
 
 data class ShoppingListItemInput(
