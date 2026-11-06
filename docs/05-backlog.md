@@ -29,7 +29,7 @@ Vite + React + TS strict, Tailwind, shadcn/ui, React Router, TanStack Query, ESL
 CA: `npm run dev/build/test/lint` pasan; PWA manifest básico.
 Supuestos: shadcn/ui configurado a mano (`components.json` + `Button`), sin CLI; PWA = `manifest.webmanifest` + ícono SVG, sin service worker; Tailwind v4; React Router en modo declarativo (`BrowserRouter`); el dev server proxea `/api` a `localhost:8080`.
 
-**BL-006 · Cliente API generado [S] · BL-004, BL-005** · `TODO`
+**BL-006 · Cliente API generado [S] · BL-004, BL-005** · `DONE`
 Script `npm run gen:api` con `openapi-typescript` + fetch wrapper (`openapi-fetch`) con manejo de token y errores Problem.
 CA: tipos generados versionados o generados en build; un hook de ejemplo funcionando.
 
