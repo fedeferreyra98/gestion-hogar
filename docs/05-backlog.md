@@ -111,6 +111,7 @@ CA: el smoke cubre UC-13 completo (lista → compra → gasto + stock) y falla s
 **BL-151 · Auth UI [M] · BL-006, BL-102** · `TODO`
 Pantallas: registro de hogar (si no existe), login. Guardado de tokens, refresh automático, rutas protegidas, logout.
 CA: tests RTL del flujo; redirección al expirar sesión.
+Nota (BL-006): el refresh automático vive acá, no en el cliente API. Debe usar el gancho `onUnauthorized` de `createApiClient` (se invoca ante un 401 con Authorization, excepto `/auth/login`, `/auth/refresh` y `/auth/register-owner`; no reintenta ni refresca por sí mismo).
 
 **BL-152 · Catálogo UI [S] · BL-151, BL-104** · `TODO`
 ABM de categorías y productos; componente `ProductPicker` (autocompletado con creación al vuelo) reutilizable.

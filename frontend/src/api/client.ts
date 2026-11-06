@@ -6,6 +6,40 @@ import type { paths } from './types.ts'
 export interface ApiClientOptions extends Omit<ClientOptions, 'baseUrl'> {
   baseUrl?: string
   getToken?: TokenGetter
+  /**
+   * Gancho invocado ante un 401 de una request que llevaba Authorization (excepto
+   * /auth/login, /auth/refresh y /auth/register-owner, donde un 401 es esperado).
+   * NO reintenta ni refresca: el error igual se propaga como ProblemError UNAUTHORIZED.
+   * El refresh automático es alcance de BL-151.
+   */
+  onUnauthorized?: (response: Response) => void | Promise<void>
+}
+
+const UNAUTHORIZED_EXCLUDED_PATHS = ['/auth/login', '/auth/refresh', '/auth/register-owner']
+
+function isExcludedFromUnauthorizedHook(url: string): boolean {
+  const { pathname } = new URL(url, 'http://localhost')
+  return UNAUTHORIZED_EXCLUDED_PATHS.some((p) => pathname.endsWith(p))
+}
+
+/**
+ * Middleware que invoca `onUnauthorized` ante un 401 de una request autenticada.
+ * No modifica ni reintenta la respuesta.
+ */
+export function createUnauthorizedMiddleware(
+  onUnauthorized: (response: Response) => void | Promise<void>,
+): Middleware {
+  return {
+    async onResponse({ request, response }) {
+      if (
+        response.status === 401 &&
+        request.headers.has('Authorization') &&
+        !isExcludedFromUnauthorizedHook(request.url)
+      ) {
+        await onUnauthorized(response.clone())
+      }
+    },
+  }
 }
 
 /**
@@ -51,6 +85,7 @@ export function createApiClient(options: ApiClientOptions = {}): Client<paths> {
     baseUrl,
     getToken = resolveAccessToken, // allow-secret: callback de resolución, no secreto
     fetch: customFetch,
+    onUnauthorized,
     ...restOptions
   } = options
 
@@ -64,6 +99,7 @@ export function createApiClient(options: ApiClientOptions = {}): Client<paths> {
   })
 
   client.use(createAuthMiddleware(getToken))
+  if (onUnauthorized) client.use(createUnauthorizedMiddleware(onUnauthorized))
 
   return client
 }

@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { server } from '../test/server.ts'
 import { createApiClient, unwrap, unwrapVoid } from './client.ts'
 import { isProblem, isProblemError, ProblemError, toProblemError } from './errors.ts'
@@ -393,5 +393,44 @@ describe('unwrap robustness', () => {
     server.use(http.get('*/api/v1/me', () => new HttpResponse(null, { status: 503 })))
     const client = createApiClient({ baseUrl: '/api/v1' })
     await expect(unwrapVoid(client.GET('/me'))).rejects.toBeInstanceOf(ProblemError)
+  })
+
+  describe('onUnauthorized hook', () => {
+    const unauthorized = () =>
+      HttpResponse.json(
+        { type: 'about:blank', title: 'Unauthorized', status: 401, code: 'UNAUTHORIZED' },
+        { status: 401, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+
+    it('is called on 401 when the request carried Authorization, error still propagates', async () => {
+      server.use(http.get('*/api/v1/me', unauthorized))
+      const onUnauthorized = vi.fn()
+      const client = createApiClient({ baseUrl: '/api/v1', onUnauthorized })
+      setAccessToken('expired-token')
+
+      await expect(unwrap(client.GET('/me'))).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+      expect(onUnauthorized).toHaveBeenCalledTimes(1)
+      expect(onUnauthorized.mock.calls[0]?.[0].status).toBe(401)
+    })
+
+    it('is not called on 401 from /auth/login', async () => {
+      server.use(http.post('*/api/v1/auth/login', unauthorized))
+      const onUnauthorized = vi.fn()
+      const client = createApiClient({ baseUrl: '/api/v1', onUnauthorized })
+      setAccessToken('some-token')
+
+      await expect(
+        unwrap(client.POST('/auth/login', { body: { email: 'a@b.local', password: 'x' } })),
+      ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+      expect(onUnauthorized).not.toHaveBeenCalled()
+    })
+
+    it('does nothing without a hook and still throws ProblemError', async () => {
+      server.use(http.get('*/api/v1/me', unauthorized))
+      const client = createApiClient({ baseUrl: '/api/v1' })
+      setAccessToken('expired-token')
+
+      await expect(unwrap(client.GET('/me'))).rejects.toBeInstanceOf(ProblemError)
+    })
   })
 })
