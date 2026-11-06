@@ -33,7 +33,7 @@ Supuestos: shadcn/ui configurado a mano (`components.json` + `Button`), sin CLI;
 Script `npm run gen:api` con `openapi-typescript` + fetch wrapper (`openapi-fetch`) con manejo de token y errores Problem.
 CA: tipos generados versionados o generados en build; un hook de ejemplo funcionando.
 
-**BL-007 · CI [S] · BL-002, BL-005** · `TODO`
+**BL-007 · CI [S] · BL-002, BL-005** · `DONE`
 GitHub Actions: job backend (build+test) y frontend (lint+test+build).
 CA: pipeline verde en PR.
 
