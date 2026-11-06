@@ -251,7 +251,7 @@ paths:
     delete:
       tags: [Catalog]
       operationId: deleteCategory
-      summary: Elimina una categoría (409 si tiene productos)
+      summary: Elimina una categoría (409 si tiene productos o gastos, incluidos los borrados)
       parameters:
         - $ref: '#/components/parameters/IdPath'
       responses:
@@ -660,6 +660,10 @@ paths:
         - name: q
           in: query
           schema: { type: string }
+        - name: shared
+          in: query
+          description: Reparto es Fase 2; en el MVP todos los gastos son `shared=false`.
+          schema: { type: boolean }
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
         - $ref: '#/components/parameters/Sort'
@@ -669,6 +673,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ExpensePage' }
+        '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [Expenses]
@@ -750,7 +755,7 @@ paths:
     delete:
       tags: [Expenses]
       operationId: deleteExpense
-      summary: Elimina (soft delete) un gasto manual
+      summary: Elimina (soft delete) un gasto manual (409 si source=PURCHASE o modificación concurrente)
       parameters:
         - $ref: '#/components/parameters/IdPath'
       responses:
@@ -758,7 +763,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/BusinessRule' }
 
   /stock:
     get:
@@ -1399,7 +1403,7 @@ components:
       description: Campos de reparto (`shared`, `splitMode`, `customSplits`) son de Fase 2 y no se incluyen aún.
       required: [description, amount, expenseDate, paidBy]
       properties:
-        description: { type: string, minLength: 1 }
+        description: { type: string, minLength: 1, maxLength: 255 }
         amount: { $ref: '#/components/schemas/Money' }
         expenseDate: { type: string, format: date }
         categoryId: { type: [string, 'null'], format: uuid }
@@ -1412,6 +1416,7 @@ components:
           properties:
             id: { type: string, format: uuid }
             source: { $ref: '#/components/schemas/ExpenseSource' }
+            shared: { type: boolean, description: 'Siempre false hasta Fase 2.' }
             createdAt: { type: string, format: date-time }
     ExpensePage:
       allOf:

@@ -5,6 +5,7 @@ import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
+import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.MissingServletRequestParameterException
 import org.springframework.web.bind.annotation.ExceptionHandler
@@ -57,6 +58,10 @@ class ApiExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException::class)
     fun handleUnreadable(ex: HttpMessageNotReadableException): ResponseEntity<ProblemDetailBody> =
         problem(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Validation failed", "Malformed request body")
+
+    @ExceptionHandler(ObjectOptimisticLockingFailureException::class)
+    fun handleOptimisticLock(ex: ObjectOptimisticLockingFailureException): ResponseEntity<ProblemDetailBody> =
+        problem(HttpStatus.CONFLICT, "CONFLICT", "Conflict", "Resource was modified concurrently; retry")
 
     @ExceptionHandler(DataIntegrityViolationException::class)
     fun handleIntegrity(ex: DataIntegrityViolationException): ResponseEntity<ProblemDetailBody> =
