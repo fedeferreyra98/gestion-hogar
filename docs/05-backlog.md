@@ -29,7 +29,7 @@ Vite + React + TS strict, Tailwind, shadcn/ui, React Router, TanStack Query, ESL
 CA: `npm run dev/build/test/lint` pasan; PWA manifest básico.
 Supuestos: shadcn/ui configurado a mano (`components.json` + `Button`), sin CLI; PWA = `manifest.webmanifest` + ícono SVG, sin service worker; Tailwind v4; React Router en modo declarativo (`BrowserRouter`); el dev server proxea `/api` a `localhost:8080`.
 
-**BL-006 · Cliente API generado [S] · BL-004, BL-005** · `TODO`
+**BL-006 · Cliente API generado [S] · BL-004, BL-005** · `DONE`
 Script `npm run gen:api` con `openapi-typescript` + fetch wrapper (`openapi-fetch`) con manejo de token y errores Problem.
 CA: tipos generados versionados o generados en build; un hook de ejemplo funcionando.
 
@@ -112,6 +112,7 @@ CA: el smoke cubre UC-13 completo (lista → compra → gasto + stock) y falla s
 **BL-151 · Auth UI [M] · BL-006, BL-102** · `TODO`
 Pantallas: registro de hogar (si no existe), login. Guardado de tokens, refresh automático, rutas protegidas, logout.
 CA: tests RTL del flujo; redirección al expirar sesión.
+Nota (BL-006): el refresh automático vive acá, no en el cliente API. Debe usar el gancho `onUnauthorized` de `createApiClient` (se invoca ante un 401 con Authorization, excepto `/auth/login`, `/auth/refresh` y `/auth/register-owner`; no reintenta ni refresca por sí mismo).
 
 **BL-152 · Catálogo UI [S] · BL-151, BL-104** · `TODO`
 ABM de categorías y productos; componente `ProductPicker` (autocompletado con creación al vuelo) reutilizable.
