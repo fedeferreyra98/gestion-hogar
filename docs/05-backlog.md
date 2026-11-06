@@ -74,7 +74,7 @@ CA: MEMBER no puede crear (403); desactivado no loguea.
 Tablas `category`, `product`; endpoints de categorías y productos con búsqueda `q`, archivado. UC-04.
 CA: nombre único case-insensitive (409); no se borra categoría con productos (409); búsqueda paginada.
 
-**BL-105 · Migración V3 + listas de compra (CRUD) [M] · BL-104** · `TODO`
+**BL-105 · Migración V3 + listas de compra (CRUD) [M] · BL-104** · `DONE`
 `shopping_list`, `shopping_list_item`; UC-10, UC-11, UC-15 (duplicar/archivar). Suma de cantidades si repite producto+unidad.
 CA: tests de cada endpoint de `04` §Listas excepto `suggestions` y `complete`; lista no-OPEN es de solo lectura (422 `LIST_NOT_OPEN`).
 
