@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { AppRoutes } from '@/AppRoutes'
 import { getApiClient, resetApiClient, unwrap } from '@/api/client'
 import { getAccessToken } from '@/api/token'
@@ -10,7 +10,14 @@ import { LoginPage } from '@/pages/LoginPage'
 import { server } from '@/test/server'
 import { AuthProvider } from './AuthProvider'
 import { RequireAuth } from './RequireAuth'
-import { applyTokens, getSessionState, REFRESH_TOKEN_KEY, resetSession } from './session'
+import {
+  applyTokens,
+  getSessionState,
+  logout,
+  REFRESH_TOKEN_KEY,
+  refreshSession,
+  resetSession,
+} from './session'
 
 const API = 'http://localhost/api/v1'
 const tokens = (n: number) => ({
@@ -232,5 +239,138 @@ describe('refresh automático ante 401', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Tu sesión expiró')
     await waitFor(() => expect(getAccessToken()).toBeNull())
     expect(localStorage.getItem(REFRESH_TOKEN_KEY)).toBeNull()
+  })
+})
+
+const problem = (status: number) => ({
+  type: 'about:blank',
+  title: 'Error',
+  status,
+  code: status === 401 ? 'UNAUTHORIZED' : 'INTERNAL_ERROR',
+})
+
+describe('bootstrap con fallo transitorio', () => {
+  it.each([
+    ['red', () => HttpResponse.error()],
+    ['5xx', () => HttpResponse.json(problem(503), { status: 503 })],
+  ])('pasa a /login (sin "Cargando…" eterno) ante fallo de %s', async (_name, resolver) => {
+    localStorage.setItem(REFRESH_TOKEN_KEY, 'mock-refresh-0')
+    server.use(http.post(`${API}/auth/refresh`, resolver))
+    renderAt('/gastos')
+    expect(await screen.findByRole('heading', { name: 'Iniciar sesión' })).toBeInTheDocument()
+    expect(screen.queryByText(/expiró/)).not.toBeInTheDocument()
+    expect(localStorage.getItem(REFRESH_TOKEN_KEY)).toBe('mock-refresh-0')
+  })
+})
+
+describe('logout con access token vencido', () => {
+  it('refresca antes y revoca el refresh token nuevo', async () => {
+    const logoutBodies: unknown[] = []
+    let refreshCalls = 0
+    server.use(
+      http.post(`${API}/auth/refresh`, () => {
+        refreshCalls++
+        return HttpResponse.json(tokens(2))
+      }),
+      http.post(`${API}/auth/logout`, async ({ request }) => {
+        if (request.headers.get('Authorization') !== 'Bearer access-2') {
+          return HttpResponse.json(problem(401), { status: 401 })
+        }
+        logoutBodies.push(await request.json())
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    applyTokens(tokens(1))
+    renderAt('/listas')
+    await userEvent.click(await screen.findByRole('button', { name: 'Cerrar sesión' }))
+    expect(await screen.findByRole('heading', { name: 'Iniciar sesión' })).toBeInTheDocument()
+    expect(refreshCalls).toBe(1)
+    expect(logoutBodies).toEqual([{ refreshToken: 'mock-refresh-2' }])
+    expect(localStorage.getItem(REFRESH_TOKEN_KEY)).toBeNull()
+    expect(getSessionState().expired).toBe(false)
+  })
+
+  it('no reautentica si hay un refresh en vuelo al cerrar sesión', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    server.use(
+      http.post(`${API}/auth/refresh`, async () => {
+        await gate
+        return HttpResponse.json(tokens(2))
+      }),
+      http.post(`${API}/auth/logout`, () => new HttpResponse(null, { status: 204 })),
+    )
+    applyTokens(tokens(1))
+    const refreshing = refreshSession()
+    const loggingOut = logout()
+    release()
+    await Promise.all([refreshing, loggingOut])
+    expect(getSessionState().status).toBe('unauthenticated')
+    expect(getAccessToken()).toBeNull()
+    expect(localStorage.getItem(REFRESH_TOKEN_KEY)).toBeNull()
+  })
+})
+
+describe('refresh single-flight', () => {
+  it('llamadas concurrentes comparten una sola request', async () => {
+    let calls = 0
+    server.use(
+      http.post(`${API}/auth/refresh`, () => {
+        calls++
+        return HttpResponse.json(tokens(2))
+      }),
+    )
+    applyTokens(tokens(1))
+    const results = await Promise.all([refreshSession(), refreshSession(), refreshSession()])
+    expect(results).toEqual([true, true, true])
+    expect(calls).toBe(1)
+    expect(localStorage.getItem(REFRESH_TOKEN_KEY)).toBe('mock-refresh-2')
+  })
+
+  it('si otra pestaña rotó el token, reintenta con el nuevo en vez de desloguear', async () => {
+    const seen: string[] = []
+    server.use(
+      http.post(`${API}/auth/refresh`, async ({ request }) => {
+        const { refreshToken } = (await request.json()) as { refreshToken: string }
+        seen.push(refreshToken)
+        if (refreshToken === 'mock-refresh-1') {
+          localStorage.setItem(REFRESH_TOKEN_KEY, 'mock-refresh-other-tab') // otra pestaña rotó
+          return HttpResponse.json(problem(401), { status: 401 })
+        }
+        return HttpResponse.json(tokens(3))
+      }),
+    )
+    applyTokens(tokens(1))
+    expect(await refreshSession()).toBe(true)
+    expect(seen).toEqual(['mock-refresh-1', 'mock-refresh-other-tab'])
+    expect(getSessionState().status).toBe('authenticated')
+  })
+})
+
+describe('redirect conserva query string', () => {
+  it('vuelve a la ruta con ?query tras el login', async () => {
+    server.use(http.post(`${API}/auth/login`, () => HttpResponse.json(tokens(1))))
+    function Where() {
+      const l = useLocation()
+      return <p>{`en ${l.pathname}${l.search}`}</p>
+    }
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={['/gastos?mes=2026-10']}>
+            <Routes>
+              <Route path="login" element={<LoginPage />} />
+              <Route element={<RequireAuth />}>
+                <Route path="gastos" element={<Where />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    )
+    await userEvent.type(await screen.findByLabelText('Email'), 'ana@example.com')
+    await userEvent.type(screen.getByLabelText('Contraseña'), 'mock-password-123')
+    await userEvent.click(screen.getByRole('button', { name: 'Ingresar' }))
+    expect(await screen.findByText('en /gastos?mes=2026-10')).toBeInTheDocument()
   })
 })

@@ -22,6 +22,9 @@ const initialState: SessionState = { status: 'unknown', expired: false }
 let state: SessionState = initialState
 const listeners = new Set<() => void>()
 let refreshInFlight: Promise<boolean> | null = null
+let loggingOut = false
+/** Se incrementa al terminar la sesión: invalida refreshes que estaban en vuelo. */
+let sessionEpoch = 0
 
 function setState(patch: Partial<SessionState>): void {
   state = { ...state, ...patch }
@@ -50,6 +53,7 @@ export function applyTokens(issued: AuthTokens): void {
 }
 
 function endSession(expired: boolean): void {
+  sessionEpoch++
   clearAccessToken()
   localStorage.removeItem(REFRESH_TOKEN_KEY)
   setState({ status: 'unauthenticated', expired })
@@ -77,48 +81,77 @@ export function refreshSession(): Promise<boolean> {
 }
 
 async function doRefresh(): Promise<boolean> {
-  const refreshToken = readRefreshToken()
+  const epoch = sessionEpoch
+  let refreshToken = readRefreshToken()
   if (!refreshToken) {
     endSession(state.status === 'authenticated')
     return false
   }
-  try {
-    const tokens = await unwrap(getApiClient().POST('/auth/refresh', { body: { refreshToken } }))
-    applyTokens(tokens)
-    return true
-  } catch (e) {
-    if (isProblemError(e) && (e.status === 401 || e.status === 400)) endSession(true)
-    return false
+  // Un segundo intento solo si otra pestaña rotó el refresh token mientras tanto.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const issued = await unwrap(getApiClient().POST('/auth/refresh', { body: { refreshToken } }))
+      // Si la sesión terminó (logout/expiración) durante la llamada, no se reautentica.
+      if (epoch !== sessionEpoch) return false
+      applyTokens(issued)
+      return true
+    } catch (e) {
+      if (epoch !== sessionEpoch) return false
+      if (!isProblemError(e) || (e.status !== 401 && e.status !== 400)) return false
+      const latest = readRefreshToken()
+      if (latest && latest !== refreshToken && attempt === 0) {
+        refreshToken = latest
+        continue
+      }
+      endSession(true)
+      return false
+    }
   }
+  return false
 }
 
 /** Gancho `onUnauthorized` del cliente API: refresca; si falla, la sesión expira. */
 export async function handleUnauthorized(): Promise<void> {
-  if (state.status !== 'authenticated') return
+  if (state.status !== 'authenticated' || loggingOut) return
   await refreshSession()
 }
 
-/** Al arrancar la app: restaura la sesión desde el refresh token guardado, si hay. */
+/**
+ * Al arrancar la app: restaura la sesión desde el refresh token guardado, si hay.
+ * Si el refresh falla por red/5xx se pasa a 'unauthenticated' (sin marcar expiración y
+ * conservando el token guardado) para no dejar la app en "Cargando…" para siempre.
+ */
 export async function bootstrapSession(): Promise<void> {
   if (state.status !== 'unknown') return
-  if (!readRefreshToken()) {
-    setState({ status: 'unauthenticated' })
-    return
-  }
-  await refreshSession()
+  if (readRefreshToken()) await refreshSession()
+  if (state.status === 'unknown') setState({ status: 'unauthenticated' })
 }
 
-/** Cierra sesión: revoca el refresh token en el servidor (best-effort) y limpia todo. */
+/**
+ * Cierra sesión: revoca el refresh token vigente en el servidor (best-effort) y limpia todo.
+ * /auth/logout requiere access token: si venció (401) se refresca explícitamente y se
+ * revoca el token NUEVO, en vez de dejar que el gancho rote el token a mitad de camino.
+ */
 export async function logout(): Promise<void> {
-  const refreshToken = readRefreshToken()
+  loggingOut = true
   try {
-    if (refreshToken) {
-      await unwrapVoid(getApiClient().POST('/auth/logout', { body: { refreshToken } }))
+    await refreshInFlight?.catch(() => false)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const refreshToken = readRefreshToken()
+      if (!refreshToken) break
+      try {
+        await unwrapVoid(getApiClient().POST('/auth/logout', { body: { refreshToken } }))
+        break
+      } catch (e) {
+        if (attempt === 0 && isProblemError(e) && e.status === 401 && (await refreshSession())) {
+          continue
+        }
+        break // Aunque falle la revocación, se cierra localmente.
+      }
     }
-  } catch {
-    // Idempotente del lado del usuario: aunque falle la revocación, se cierra localmente.
   } finally {
     endSession(false)
+    loggingOut = false
   }
 }
 
@@ -129,6 +162,8 @@ export function resetSession(): void {
   clearAccessToken()
   localStorage.removeItem(REFRESH_TOKEN_KEY)
   refreshInFlight = null
+  loggingOut = false
+  sessionEpoch++
   state = initialState
   listeners.forEach((l) => l())
 }
