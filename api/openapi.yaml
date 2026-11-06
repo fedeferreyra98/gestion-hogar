@@ -1457,9 +1457,9 @@ components:
         quantity: { $ref: '#/components/schemas/Decimal' }
         initialQuantity: { $ref: '#/components/schemas/Decimal' }
         unit: { $ref: '#/components/schemas/Unit' }
-        expiryDate: { type: string, format: date }
+        expiryDate: { type: [string, 'null'], format: date }
         expiryStatus: { $ref: '#/components/schemas/ExpiryStatus' }
-        location: { type: string }
+        location: { type: [string, 'null'] }
         status: { $ref: '#/components/schemas/StockStatus' }
         addedAt: { type: string, format: date-time }
     StockItemPage:
@@ -1530,4 +1530,4 @@ components:
         product: { $ref: '#/components/schemas/Ref' }
         totalQuantity: { $ref: '#/components/schemas/Decimal' }
         unit: { $ref: '#/components/schemas/Unit' }
-        nearestExpiry: { type: string, format: date }
+        nearestExpiry: { type: [string, 'null'], format: date }

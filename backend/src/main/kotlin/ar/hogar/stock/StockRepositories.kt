@@ -44,7 +44,7 @@ interface StockItemRepository : JpaRepository<StockItem, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query(
         "select s from StockItem s where s.householdId = :householdId and s.productId = :productId " +
-            "and s.unit = :unit and s.status = ar.hogar.stock.StockStatus.ACTIVE",
+            "and s.unit = :unit and s.status = ar.hogar.stock.StockStatus.ACTIVE order by s.id",
     )
     fun lockActive(
         @Param("householdId") householdId: UUID,

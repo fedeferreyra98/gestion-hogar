@@ -32,8 +32,13 @@ class StockService(
     private companion object {
         val MAX_QUANTITY: BigDecimal = BigDecimal("999999999.999")
         val QUANTITY_FORMAT = Regex("""^\d+(\.\d{1,3})?$""")
+
+        // Centinelas de los extremos abiertos de la búsqueda; el rango válido de expiryDate queda adentro,
+        // así ningún lote creado por la API puede quedar fuera de EXPIRED/alertas.
         val MIN_DATE: LocalDate = LocalDate.of(1000, 1, 1)
         val MAX_DATE: LocalDate = LocalDate.of(9999, 12, 31)
+        val MIN_EXPIRY: LocalDate = LocalDate.of(1900, 1, 1)
+        val MAX_EXPIRY: LocalDate = LocalDate.of(2999, 12, 31)
     }
 
     @Transactional(readOnly = true)
@@ -74,6 +79,7 @@ class StockService(
         req: CreateStockItemRequest,
     ): StockItemDto {
         val quantity = parseQuantity("quantity", req.quantity, allowZero = false)
+        req.expiryDate?.let(::checkExpiryRange)
         catalog.requireProduct(householdId, req.productId!!)
         val now = clock.instant()
         val item =
@@ -104,6 +110,11 @@ class StockService(
     ): StockItemDto {
         // Validar antes de tocar: un body inválido no debe dejar cambios a medias.
         val newQuantity = req.quantity?.let { parseQuantity("quantity", it, allowZero = true) }
+        req.expiryDate?.let(::checkExpiryRange)
+        // No se puede borrar la ubicación por PATCH (docs/04): vacío o en blanco es inválido.
+        if (req.location != null && req.location.isBlank()) {
+            throw ValidationException("Invalid location", listOf(FieldError("location", "must not be blank")))
+        }
         val item = lockedActive(householdId, id)
         req.expiryDate?.let { item.expiryDate = it }
         req.location?.let { item.location = it.clean() }
@@ -282,6 +293,15 @@ class StockService(
         if (value.signum() == 0 && !allowZero) bad("must be greater than 0")
         if (value > MAX_QUANTITY) bad("must be at most $MAX_QUANTITY")
         return value
+    }
+
+    private fun checkExpiryRange(date: LocalDate) {
+        if (date.isBefore(MIN_EXPIRY) || date.isAfter(MAX_EXPIRY)) {
+            throw ValidationException(
+                "Invalid expiryDate",
+                listOf(FieldError("expiryDate", "must be between $MIN_EXPIRY and $MAX_EXPIRY")),
+            )
+        }
     }
 
     private fun BigDecimal.fmt(): String = setScale(3).toPlainString()

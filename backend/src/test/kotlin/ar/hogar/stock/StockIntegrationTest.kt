@@ -5,19 +5,39 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.test.context.TestConfiguration
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Import
+import org.springframework.context.annotation.Primary
 import org.springframework.http.HttpMethod
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MvcResult
 import org.springframework.test.web.servlet.request
+import java.time.Clock
+import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
+import java.time.ZoneOffset
 import java.util.UUID
 import kotlin.test.assertEquals
 
+@Import(StockIntegrationTest.FixedClockConfig::class)
 class StockIntegrationTest : IntegrationTestBase() {
     private companion object {
         const val PASSWORD = "mock-password-123" // Datos mock (docs/07-sensitive-data.md)
         const val ZONE = "Pacific/Auckland" // lejos de UTC para que "hoy" dependa de la zona del hogar
+
+        // Instante fijo (futuro, para que los JWT firmados con este reloj sigan vigentes):
+        // 2040-06-15 12:00 UTC = 2040-06-16 00:00 en Auckland (UTC+12).
+        val NOW: Instant = Instant.parse("2040-06-15T12:00:00Z")
+        val TODAY_AUCKLAND: LocalDate = LocalDate.parse("2040-06-16")
+        val TODAY_UTC: LocalDate = LocalDate.parse("2040-06-15")
+    }
+
+    @TestConfiguration
+    class FixedClockConfig {
+        @Bean
+        @Primary
+        fun fixedClock(): Clock = Clock.fixed(NOW, ZoneOffset.UTC)
     }
 
     @Autowired lateinit var mapper: ObjectMapper
@@ -89,10 +109,48 @@ class StockIntegrationTest : IntegrationTestBase() {
         unit: String = "UNIT",
     ) = call(HttpMethod.POST, "stock/consume", mapOf("productId" to productId, "quantity" to qty, "unit" to unit), t)
 
-    /** Hogar en zona Auckland; devuelve "hoy" en esa zona. */
+    /** Hogar en zona Auckland; devuelve "hoy" en esa zona según el reloj fijo inyectado. */
     private fun setZone(): LocalDate {
         jdbc.update("UPDATE household SET timezone = ?", ZONE)
-        return LocalDate.now(ZoneId.of(ZONE))
+        return TODAY_AUCKLAND
+    }
+
+    @Test
+    fun `today follows the household timezone for the same instant`() {
+        val t = register()
+        val p = product(t, "Pan")
+        val lot = json(add(t, p, "1", TODAY_UTC))["id"].asText() // vence el 15/06
+
+        fun status() =
+            json(call(HttpMethod.GET, "stock", bearer = t))["content"]
+                .single { it["id"].asText() == lot }["expiryStatus"]
+                .asText()
+
+        jdbc.update("UPDATE household SET timezone = 'UTC'")
+        assertEquals("EXPIRING_SOON", status()) // hoy UTC = 15/06
+        assertEquals(1, json(call(HttpMethod.GET, "stock/alerts", bearer = t))["expiringSoon"].size())
+
+        setZone() // hoy Auckland = 16/06 -> ya venció
+        assertEquals("EXPIRED", status())
+        assertEquals(1, json(call(HttpMethod.GET, "stock/alerts", bearer = t))["expired"].size())
+        assertEquals(1, json(call(HttpMethod.GET, "stock?expiry=EXPIRED", bearer = t))["content"].size())
+    }
+
+    @Test
+    fun `patch rejects blank location and out of range expiry date`() {
+        val t = register()
+        val p = product(t, "Sal")
+        val id = json(add(t, p, "1", location = "Despensa"))["id"].asText()
+        assertEquals(400, call(HttpMethod.PATCH, "stock/$id", mapOf("location" to "   "), t).response.status)
+        assertEquals(400, call(HttpMethod.PATCH, "stock/$id", mapOf("location" to ""), t).response.status)
+        assertEquals(400, call(HttpMethod.PATCH, "stock/$id", mapOf("expiryDate" to "0001-01-01"), t).response.status)
+        assertEquals(400, add(t, p, "1", LocalDate.parse("3000-01-01")).response.status)
+        assertEquals(400, add(t, p, "1", LocalDate.parse("1899-12-31")).response.status)
+        // sin cambios por los intentos fallidos
+        val item = json(call(HttpMethod.GET, "stock", bearer = t))["content"][0]
+        assertEquals("Despensa", item["location"].asText())
+        assertEquals(1, json(call(HttpMethod.GET, "stock", bearer = t))["content"].size())
+        assertEquals(201, add(t, p, "1", LocalDate.parse("2999-12-31")).response.status)
     }
 
     @Test
