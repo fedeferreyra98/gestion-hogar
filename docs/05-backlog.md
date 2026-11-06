@@ -74,13 +74,14 @@ CA: MEMBER no puede crear (403); desactivado no loguea.
 Tablas `category`, `product`; endpoints de categorías y productos con búsqueda `q`, archivado. UC-04.
 CA: nombre único case-insensitive (409); no se borra categoría con productos (409); búsqueda paginada.
 
-**BL-105 · Migración V3 + listas de compra (CRUD) [M] · BL-104** · `TODO`
+**BL-105 · Migración V3 + listas de compra (CRUD) [M] · BL-104** · `DONE`
 `shopping_list`, `shopping_list_item`; UC-10, UC-11, UC-15 (duplicar/archivar). Suma de cantidades si repite producto+unidad.
 CA: tests de cada endpoint de `04` §Listas excepto `suggestions` y `complete`; lista no-OPEN es de solo lectura (422 `LIST_NOT_OPEN`).
 
-**BL-106 · Migración V4 + módulo stock [L] · BL-104** · `TODO`
+**BL-106 · Migración V4 + módulo stock [L] · BL-104** · `DONE`
 `stock_item`, `stock_movement`; UC-30–34. Alta manual, consumo FEFO por producto y por lote, descarte, alertas, summary, `expiryStatus` calculado con zona del hogar.
 CA: tests unitarios de FEFO (con NULLs al final, consumo que cruza varios lotes, `INSUFFICIENT_STOCK`); tests de estados de vencimiento con reloj inyectable (`Clock`).
+Supuestos (BL-106): ver "Cambios de contrato" en `04` (unidades sin conversión, 409 sobre lotes no activos, `purchase_item_id` sin FK hasta V6). `FEFO` y `ExpiryPolicy` son funciones puras (`stock/Fefo.kt`); el consumo toma `SELECT ... FOR UPDATE` de los lotes. `stock` usa `CatalogService` (`requireProduct`, `productNames`) y solo el filtro por categoría toca la entidad `Product` en JPQL.
 
 **BL-107 · Migración V5 + gastos manuales e histórico [M] · BL-104, BL-008** · `DONE`
 `expense`; UC-20, UC-21. Filtros, paginación, `totalFiltered`, soft delete, restricción para `source=PURCHASE`. Campos de split/shared se persisten pero la lógica de reparto queda para P2 (devolver `shared=false`).
