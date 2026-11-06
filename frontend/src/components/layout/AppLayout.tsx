@@ -38,7 +38,7 @@ export function AppLayout() {
       </div>
       <nav
         aria-label="Navegación inferior"
-        className="fixed inset-x-0 bottom-0 grid grid-cols-3 border-t border-border bg-background pb-[env(safe-area-inset-bottom)] md:hidden"
+        className="fixed inset-x-0 bottom-0 grid grid-flow-col auto-cols-fr border-t border-border bg-background pb-[env(safe-area-inset-bottom)] md:hidden"
       >
         {navItems.map(({ to, label, icon: Icon }) => (
           <NavLink

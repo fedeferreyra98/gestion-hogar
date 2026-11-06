@@ -170,7 +170,7 @@ export interface paths {
     /** Renombra una categoría */
     put: operations['updateCategory']
     post?: never
-    /** Elimina una categoría (409 si tiene productos) */
+    /** Elimina una categoría (409 si tiene productos o gastos, incluidos los borrados) */
     delete: operations['deleteCategory']
     options?: never
     head?: never
@@ -471,7 +471,7 @@ export interface paths {
     /** Edita un gasto manual (409/422 si source=PURCHASE) */
     put: operations['updateExpense']
     post?: never
-    /** Elimina (soft delete) un gasto manual */
+    /** Elimina (soft delete) un gasto manual (409 si source=PURCHASE o modificación concurrente) */
     delete: operations['deleteExpense']
     options?: never
     head?: never
@@ -955,6 +955,8 @@ export interface components {
       /** Format: uuid */
       id: string
       source: components['schemas']['ExpenseSource']
+      /** @description Siempre false hasta Fase 2. */
+      shared?: boolean
       /** Format: date-time */
       createdAt: string
     }
@@ -986,9 +988,9 @@ export interface components {
       initialQuantity: components['schemas']['Decimal']
       unit: components['schemas']['Unit']
       /** Format: date */
-      expiryDate?: string
+      expiryDate?: string | null
       expiryStatus: components['schemas']['ExpiryStatus']
-      location?: string
+      location?: string | null
       status: components['schemas']['StockStatus']
       /** Format: date-time */
       addedAt: string
@@ -1039,7 +1041,7 @@ export interface components {
       totalQuantity: components['schemas']['Decimal']
       unit: components['schemas']['Unit']
       /** Format: date */
-      nearestExpiry?: string
+      nearestExpiry?: string | null
     }
   }
   responses: {
@@ -1141,7 +1143,7 @@ export interface operations {
         }
       }
       400: components['responses']['ValidationError']
-      422: components['responses']['BusinessRule']
+      409: components['responses']['Conflict']
     }
   }
   login: {
@@ -1317,6 +1319,7 @@ export interface operations {
       401: components['responses']['Unauthorized']
       403: components['responses']['Forbidden']
       404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
     }
   }
   updateHousehold: {
@@ -1502,6 +1505,8 @@ export interface operations {
       }
       400: components['responses']['ValidationError']
       401: components['responses']['Unauthorized']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
     }
   }
   updateProduct: {
@@ -1531,6 +1536,7 @@ export interface operations {
       400: components['responses']['ValidationError']
       401: components['responses']['Unauthorized']
       404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
     }
   }
   archiveProduct: {
@@ -1795,6 +1801,7 @@ export interface operations {
       400: components['responses']['ValidationError']
       401: components['responses']['Unauthorized']
       404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
       422: components['responses']['BusinessRule']
     }
   }
@@ -1819,6 +1826,7 @@ export interface operations {
       }
       401: components['responses']['Unauthorized']
       404: components['responses']['NotFound']
+      422: components['responses']['BusinessRule']
     }
   }
   updateShoppingListItem: {
@@ -1849,6 +1857,7 @@ export interface operations {
       400: components['responses']['ValidationError']
       401: components['responses']['Unauthorized']
       404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
       422: components['responses']['BusinessRule']
     }
   }
@@ -2008,6 +2017,8 @@ export interface operations {
         paidBy?: string
         source?: components['schemas']['ExpenseSource']
         q?: string
+        /** @description Reparto es Fase 2; en el MVP todos los gastos son `shared=false`. */
+        shared?: boolean
         /** @description Número de página (0-based) */
         page?: components['parameters']['Page']
         /** @description Tamaño de página */
@@ -2030,6 +2041,7 @@ export interface operations {
           'application/json': components['schemas']['ExpensePage']
         }
       }
+      400: components['responses']['ValidationError']
       401: components['responses']['Unauthorized']
     }
   }
@@ -2164,7 +2176,6 @@ export interface operations {
       401: components['responses']['Unauthorized']
       404: components['responses']['NotFound']
       409: components['responses']['Conflict']
-      422: components['responses']['BusinessRule']
     }
   }
   listStock: {
@@ -2179,8 +2190,6 @@ export interface operations {
         page?: components['parameters']['Page']
         /** @description Tamaño de página */
         size?: components['parameters']['Size']
-        /** @description `campo,asc|desc` */
-        sort?: components['parameters']['Sort']
       }
       header?: never
       path?: never
@@ -2224,6 +2233,7 @@ export interface operations {
       }
       400: components['responses']['ValidationError']
       401: components['responses']['Unauthorized']
+      404: components['responses']['NotFound']
     }
   }
   consumeStockByProduct: {
@@ -2250,6 +2260,7 @@ export interface operations {
       }
       400: components['responses']['ValidationError']
       401: components['responses']['Unauthorized']
+      404: components['responses']['NotFound']
       422: components['responses']['BusinessRule']
     }
   }
@@ -2322,6 +2333,7 @@ export interface operations {
       400: components['responses']['ValidationError']
       401: components['responses']['Unauthorized']
       404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
     }
   }
   consumeStockItem: {
@@ -2351,6 +2363,7 @@ export interface operations {
       400: components['responses']['ValidationError']
       401: components['responses']['Unauthorized']
       404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
       422: components['responses']['BusinessRule']
     }
   }
@@ -2380,6 +2393,7 @@ export interface operations {
       }
       401: components['responses']['Unauthorized']
       404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
     }
   }
 }

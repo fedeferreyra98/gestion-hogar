@@ -1,4 +1,4 @@
-import { ClipboardList, Package, Receipt, type LucideIcon } from 'lucide-react'
+import { ClipboardList, Package, Receipt, Tags, type LucideIcon } from 'lucide-react'
 
 interface NavItem {
   to: string
@@ -10,4 +10,5 @@ export const navItems: NavItem[] = [
   { to: '/listas', label: 'Listas', icon: ClipboardList },
   { to: '/gastos', label: 'Gastos', icon: Receipt },
   { to: '/stock', label: 'Stock', icon: Package },
+  { to: '/catalogo', label: 'Catálogo', icon: Tags },
 ]
