@@ -1,7 +1,7 @@
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { server } from '../test/server.ts'
-import { createApiClient, unwrap } from './client.ts'
+import { createApiClient, unwrap, unwrapVoid } from './client.ts'
 import { isProblem, isProblemError, ProblemError, toProblemError } from './errors.ts'
 import {
   clearAccessToken,
@@ -81,7 +81,7 @@ describe('errors & Problem details', () => {
     )
     expect(fallback.status).toBe(503)
     expect(fallback.message).toBe('Network disconnected')
-    expect(fallback.code).toBe('BUSINESS_RULE')
+    expect(fallback.code).toBe('INTERNAL_ERROR')
   })
 })
 
@@ -266,5 +266,112 @@ describe('apiClient & auth middleware', () => {
       expect(pe.code).toBe('UNAUTHORIZED')
       return true
     })
+  })
+})
+
+describe('unwrap robustness', () => {
+  beforeEach(() => {
+    resetTokenState()
+  })
+
+  it('wraps network failures (fetch TypeError) in ProblemError with status 0', async () => {
+    server.use(http.get('*/api/v1/me', () => HttpResponse.error()))
+    const client = createApiClient({ baseUrl: '/api/v1' })
+
+    await expect(unwrap(client.GET('/me'))).rejects.toSatisfy((err: unknown) => {
+      expect(isProblemError(err)).toBe(true)
+      const pe = err as ProblemError
+      expect(pe.status).toBe(0)
+      expect(pe.code).toBe('NETWORK_ERROR')
+      return true
+    })
+  })
+
+  it('wraps a throwing token provider in ProblemError', async () => {
+    const client = createApiClient({
+      baseUrl: '/api/v1',
+      getToken: async () => {
+        throw new Error('token boom')
+      },
+    })
+
+    await expect(unwrap(client.GET('/me'))).rejects.toSatisfy((err: unknown) => {
+      expect(isProblemError(err)).toBe(true)
+      expect((err as ProblemError).code).toBe('NETWORK_ERROR')
+      expect((err as ProblemError).detail).toBe('token boom')
+      return true
+    })
+  })
+
+  it('re-throws AbortError untouched when the caller aborts', async () => {
+    const client = createApiClient({
+      baseUrl: '/api/v1',
+      fetch: async () => {
+        throw new DOMException('The operation was aborted.', 'AbortError')
+      },
+    })
+
+    await expect(unwrap(client.GET('/me'))).rejects.toSatisfy((err: unknown) => {
+      expect(isProblemError(err)).toBe(false)
+      expect((err as Error).name).toBe('AbortError')
+      return true
+    })
+  })
+
+  it.each([502, 503])('maps HTML %i to INTERNAL_ERROR, not BUSINESS_RULE', async (status) => {
+    server.use(
+      http.get('*/api/v1/me', () =>
+        HttpResponse.text('<html><body>Bad gateway</body></html>', {
+          status,
+          headers: { 'Content-Type': 'text/html' },
+        }),
+      ),
+    )
+    const client = createApiClient({ baseUrl: '/api/v1' })
+
+    await expect(unwrap(client.GET('/me'))).rejects.toSatisfy((err: unknown) => {
+      expect(isProblemError(err)).toBe(true)
+      const pe = err as ProblemError
+      expect(pe.status).toBe(status)
+      expect(pe.code).toBe('INTERNAL_ERROR')
+      return true
+    })
+  })
+
+  it('maps 429 and 405 to INTERNAL_ERROR while 422 stays BUSINESS_RULE', () => {
+    expect(toProblemError(undefined, new Response(null, { status: 429 })).code).toBe(
+      'INTERNAL_ERROR',
+    )
+    expect(toProblemError(undefined, new Response(null, { status: 405 })).code).toBe(
+      'INTERNAL_ERROR',
+    )
+    expect(toProblemError(undefined, new Response(null, { status: 422 })).code).toBe(
+      'BUSINESS_RULE',
+    )
+  })
+
+  it('unwrapVoid resolves undefined on 204', async () => {
+    server.use(http.get('*/api/v1/me', () => new HttpResponse(null, { status: 204 })))
+    const client = createApiClient({ baseUrl: '/api/v1' })
+
+    const result: void = await unwrapVoid(client.GET('/me'))
+    expect(result).toBeUndefined()
+  })
+
+  it('unwrap rejects with EMPTY_RESPONSE when a body was expected but 204 arrived', async () => {
+    server.use(http.get('*/api/v1/me', () => new HttpResponse(null, { status: 204 })))
+    const client = createApiClient({ baseUrl: '/api/v1' })
+
+    await expect(unwrap(client.GET('/me'))).rejects.toSatisfy((err: unknown) => {
+      expect(isProblemError(err)).toBe(true)
+      expect((err as ProblemError).code).toBe('EMPTY_RESPONSE')
+      return true
+    })
+  })
+
+  it('unwrapVoid still throws ProblemError on HTTP failure', async () => {
+    server.use(http.get('*/api/v1/me', () => new HttpResponse(null, { status: 503 })))
+    const client = createApiClient({ baseUrl: '/api/v1' })
+    await expect(unwrapVoid(client.GET('/me'))).rejects.toBeInstanceOf(ProblemError)
   })
 })

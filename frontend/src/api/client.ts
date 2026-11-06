@@ -1,5 +1,5 @@
 import createClient, { type Client, type ClientOptions, type Middleware } from 'openapi-fetch'
-import { toProblemError } from './errors.ts'
+import { ProblemError, toProblemError } from './errors.ts'
 import { resolveAccessToken, type TokenGetter } from './token.ts'
 import type { paths } from './types.ts'
 
@@ -68,20 +68,60 @@ export function createApiClient(options: ApiClientOptions = {}): Client<paths> {
   return client
 }
 
-/**
- * Desenvuelve la respuesta de openapi-fetch:
- * - Si es exitosa (response.ok), retorna `data`.
- * - Si falló (error presente o !response.ok), lanza un `ProblemError` tipado.
- * Ideal para integrar con TanStack Query y funciones asíncronas estándar.
- */
-export async function unwrap<T>(
-  promise: Promise<{ data?: T; error?: unknown; response: Response }>,
-): Promise<T> {
-  const { data, error, response } = await promise
-  if (error !== undefined || !response.ok) {
-    throw toProblemError(error, response)
+type ApiResult<T> = { data?: T; error?: unknown; response: Response }
+
+function isAbortError(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && (e as { name?: unknown }).name === 'AbortError'
+}
+
+async function settle<T>(promise: Promise<ApiResult<T>>): Promise<ApiResult<T>> {
+  let result: ApiResult<T>
+  try {
+    result = await promise
+  } catch (e) {
+    // Decisión: si el caller aborta (AbortController / cancelación de TanStack Query),
+    // se re-lanza el AbortError original para que los consumidores puedan distinguir
+    // una cancelación de un fallo real. Todo lo demás (fetch rechazado con TypeError,
+    // token provider que lanza, etc.) se normaliza a ProblemError (status 0, NETWORK_ERROR).
+    if (isAbortError(e)) throw e
+    throw toProblemError(e)
   }
-  return data as T
+  if (result.error !== undefined || !result.response.ok) {
+    throw toProblemError(result.error, result.response)
+  }
+  return result
+}
+
+/**
+ * Desenvuelve la respuesta de openapi-fetch cuando se espera un cuerpo:
+ * - Exitosa con cuerpo: retorna `data`.
+ * - Falla HTTP o de red: lanza siempre un `ProblemError` (excepto AbortError, ver `settle`).
+ * - Exitosa pero sin cuerpo (204/vacío): lanza `ProblemError` EMPTY_RESPONSE; para
+ *   endpoints sin contenido usar `unwrapVoid`.
+ */
+export async function unwrap<T>(promise: Promise<ApiResult<T>>): Promise<T> {
+  const { data, response } = await settle(promise)
+  if (data === undefined) {
+    throw new ProblemError(
+      {
+        type: 'about:blank',
+        title: 'Empty response',
+        status: response.status,
+        code: 'EMPTY_RESPONSE',
+        detail: 'Expected a response body but received none',
+      },
+      response,
+    )
+  }
+  return data
+}
+
+/**
+ * Variante para endpoints sin contenido (204): resuelve `void` si fue exitosa,
+ * lanza `ProblemError` en cualquier fallo.
+ */
+export async function unwrapVoid(promise: Promise<ApiResult<unknown>>): Promise<void> {
+  await settle(promise)
 }
 
 /**
