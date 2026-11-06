@@ -118,7 +118,7 @@ class ExpenseService(
         req: ExpenseInput,
     ): ExpenseDto {
         val expense = manualExpense(householdId, id)
-        val money = validated(householdId, req)
+        val money = validated(householdId, req, currentPayer = expense.paidBy)
         expense.description = req.description.trim()
         expense.amountMinor = money.amountMinor
         expense.currency = money.currency.currencyCode
@@ -144,6 +144,7 @@ class ExpenseService(
     private fun validated(
         householdId: UUID,
         req: ExpenseInput,
+        currentPayer: UUID? = null,
     ): Money {
         val input = req.amount!!
         val money = Money.of(input.amountMinor!!, input.currency!!)
@@ -158,7 +159,11 @@ class ExpenseService(
                 throw ValidationException("Invalid category", listOf(FieldError("categoryId", "does not exist")))
             }
         }
-        val payer = members.findById(req.paidBy!!).filter { it.householdId == householdId && it.active }
+        // Un gasto histórico con pagador desactivado se puede editar si el pagador no cambia.
+        val payer =
+            members.findById(req.paidBy!!).filter {
+                it.householdId == householdId && (it.active || req.paidBy == currentPayer)
+            }
         if (payer.isEmpty) {
             throw ValidationException("Invalid payer", listOf(FieldError("paidBy", "must be an active member")))
         }

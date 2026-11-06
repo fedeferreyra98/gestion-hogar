@@ -15,6 +15,9 @@ interface CurrencyTotal {
 }
 
 interface ExpenseRepository : JpaRepository<Expense, UUID> {
+    /** Incluye gastos borrados lógicamente: la FK a `category` sigue vigente. */
+    fun existsByCategoryId(categoryId: UUID): Boolean
+
     fun findByIdAndHouseholdIdAndDeletedAtIsNull(
         id: UUID,
         householdId: UUID,

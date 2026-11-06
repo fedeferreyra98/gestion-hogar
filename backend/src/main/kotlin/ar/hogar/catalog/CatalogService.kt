@@ -5,6 +5,7 @@ import ar.hogar.common.NotFoundException
 import ar.hogar.common.PageRequests
 import ar.hogar.common.PageResponse
 import ar.hogar.common.toPageResponse
+import ar.hogar.expense.ExpenseRepository
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Service
@@ -17,6 +18,7 @@ import java.util.UUID
 class CatalogService(
     private val categories: CategoryRepository,
     private val products: ProductRepository,
+    private val expenses: ExpenseRepository,
     private val clock: Clock,
 ) {
     // ---- Categorías ----
@@ -59,6 +61,7 @@ class CatalogService(
     ) {
         val category = category(householdId, id)
         if (products.existsByCategoryId(id)) throw ConflictException("Category has products")
+        if (expenses.existsByCategoryId(id)) throw ConflictException("Category has expenses")
         categories.delete(category)
     }
 

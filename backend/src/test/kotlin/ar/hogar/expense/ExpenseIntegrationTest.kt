@@ -10,10 +10,12 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpMethod
 import org.springframework.http.MediaType
+import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.test.web.servlet.MvcResult
 import org.springframework.test.web.servlet.request
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 
 class ExpenseIntegrationTest : IntegrationTestBase() {
@@ -25,6 +27,8 @@ class ExpenseIntegrationTest : IntegrationTestBase() {
     @Autowired lateinit var mapper: ObjectMapper
 
     @Autowired lateinit var jwt: JwtService
+
+    @Autowired lateinit var expenseRepository: ExpenseRepository
 
     private fun call(
         method: HttpMethod,
@@ -278,5 +282,147 @@ class ExpenseIntegrationTest : IntegrationTestBase() {
         // pagador de otro hogar
         assertEquals(400, create(b, paidBy = a.memberId).response.status)
         assertEquals(401, call(HttpMethod.GET, "expenses").response.status)
+    }
+
+    private fun addMember(
+        owner: Ctx,
+        email: String,
+    ): Ctx {
+        val m =
+            body(
+                call(
+                    HttpMethod.POST,
+                    "members",
+                    mapOf("email" to email, "displayName" to "Miembro", "password" to PASSWORD),
+                    owner.token,
+                ),
+            )["id"].asText()
+        val token =
+            body(call(HttpMethod.POST, "auth/login", mapOf("email" to email, "password" to PASSWORD)))["accessToken"]
+                .asText()
+        return Ctx(token, m, owner.householdId)
+    }
+
+    @Test
+    fun `a MEMBER can create list edit and delete expenses`() {
+        val owner = registerOwner()
+        val member = addMember(owner, "miembro@example.test")
+        val id = body(create(member))["id"].asText()
+        assertEquals(1, body(call(HttpMethod.GET, "expenses", bearer = member.token))["totalElements"].asInt())
+        val edit = input("Editado", 2000, paidBy = owner.memberId)
+        assertEquals(200, call(HttpMethod.PUT, "expenses/$id", edit, member.token).response.status)
+        assertEquals(204, call(HttpMethod.DELETE, "expenses/$id", bearer = member.token).response.status)
+    }
+
+    @Test
+    fun `inactive payer is rejected on create but historic expense stays editable if payer is unchanged`() {
+        val owner = registerOwner()
+        val member = addMember(owner, "miembro@example.test")
+        val id = body(create(owner, paidBy = member.memberId))["id"].asText()
+        val off = call(HttpMethod.PATCH, "members/${member.memberId}", mapOf("active" to false), owner.token)
+        assertEquals(200, off.response.status)
+
+        assertEquals(400, create(owner, paidBy = member.memberId).response.status)
+        // mismo pagador (inactivo): se puede editar
+        val same = call(HttpMethod.PUT, "expenses/$id", input("Corregido", 1234, paidBy = member.memberId), owner.token)
+        assertEquals(200, same.response.status)
+        assertEquals(1234, body(same)["amount"]["amountMinor"].asLong())
+        // cambiar a otro pagador inactivo no
+        val other = addMember(owner, "otro@example.test")
+        call(HttpMethod.PATCH, "members/${other.memberId}", mapOf("active" to false), owner.token)
+        val change = call(HttpMethod.PUT, "expenses/$id", input(paidBy = other.memberId), owner.token)
+        assertEquals(400, change.response.status)
+        // cambiar a un miembro activo sí
+        assertEquals(
+            200,
+            call(HttpMethod.PUT, "expenses/$id", input(paidBy = owner.memberId), owner.token).response.status,
+        )
+    }
+
+    @Test
+    fun `category from another household is rejected`() {
+        val a = registerOwner()
+        val b = otherHousehold()
+        val foreign = category(b, "Ajena")
+        assertEquals(400, create(a, categoryId = foreign).response.status)
+        val id = body(create(a))["id"].asText()
+        val r = call(HttpMethod.PUT, "expenses/$id", input(categoryId = foreign, paidBy = a.memberId), a.token)
+        assertEquals(400, r.response.status)
+    }
+
+    @Test
+    fun `update on a soft-deleted expense returns 404`() {
+        val c = registerOwner()
+        val id = body(create(c))["id"].asText()
+        call(HttpMethod.DELETE, "expenses/$id", bearer = c.token)
+        assertEquals(404, call(HttpMethod.PUT, "expenses/$id", input(paidBy = c.memberId), c.token).response.status)
+    }
+
+    @Test
+    fun `sort by amountMinor and invalid sorts`() {
+        val c = registerOwner()
+        create(c, "B", 300)
+        create(c, "A", 100)
+        create(c, "C", 200)
+
+        fun amounts(sort: String) =
+            body(call(HttpMethod.GET, "expenses?sort=$sort", bearer = c.token))["content"]
+                .map { it["amount"]["amountMinor"].asLong() }
+
+        assertEquals(listOf(100L, 200L, 300L), amounts("amountMinor,asc"))
+        assertEquals(listOf(300L, 200L, 100L), amounts("amountMinor,desc"))
+        listOf("description", "amountMinor,sideways", "amountMinor,asc,x").forEach {
+            assertEquals(400, call(HttpMethod.GET, "expenses?sort=$it", bearer = c.token).response.status, it)
+        }
+        assertEquals(400, call(HttpMethod.GET, "expenses?size=101", bearer = c.token).response.status)
+        assertEquals(400, call(HttpMethod.GET, "expenses?page=-1", bearer = c.token).response.status)
+    }
+
+    @Test
+    fun `description longer than 255 is rejected`() {
+        val c = registerOwner()
+        assertEquals(201, create(c, description = "x".repeat(255)).response.status)
+        assertEquals(400, create(c, description = "x".repeat(256)).response.status)
+    }
+
+    @Test
+    fun `stale write after a concurrent delete cannot resurrect the expense`() {
+        val c = registerOwner()
+        val id = UUID.fromString(body(create(c))["id"].asText())
+        val stale = expenseRepository.findById(id).get() // detached: la lectura concurrente previa al DELETE
+        assertEquals(204, call(HttpMethod.DELETE, "expenses/$id", bearer = c.token).response.status)
+
+        stale.description = "Zombi"
+        assertFailsWith<ObjectOptimisticLockingFailureException> { expenseRepository.saveAndFlush(stale) }
+        val deletedAt = "SELECT deleted_at IS NOT NULL FROM expense WHERE id = ?"
+        assertEquals(true, jdbc.queryForObject(deletedAt, Boolean::class.java, id))
+    }
+
+    @Test
+    fun `two stale updates do not lose each other`() {
+        val c = registerOwner()
+        val id = UUID.fromString(body(create(c))["id"].asText())
+        val first = expenseRepository.findById(id).get()
+        val second = expenseRepository.findById(id).get()
+        first.description = "Primero"
+        expenseRepository.saveAndFlush(first)
+        second.amountMinor = 999
+        assertFailsWith<ObjectOptimisticLockingFailureException> { expenseRepository.saveAndFlush(second) }
+        assertEquals("Primero", body(call(HttpMethod.GET, "expenses/$id", bearer = c.token))["description"].asText())
+    }
+
+    @Test
+    fun `category with expenses (even deleted) cannot be deleted - domain 409`() {
+        val c = registerOwner()
+        val cat = category(c, "Servicios")
+        val id = body(create(c, categoryId = cat))["id"].asText()
+        val r = call(HttpMethod.DELETE, "categories/$cat", bearer = c.token)
+        assertEquals(409, r.response.status)
+        assertEquals("Category has expenses", body(r)["detail"].asText())
+        call(HttpMethod.DELETE, "expenses/$id", bearer = c.token)
+        assertEquals(409, call(HttpMethod.DELETE, "categories/$cat", bearer = c.token).response.status)
+        // sin gastos, se puede
+        val empty = category(c, "Vacía")
+        assertEquals(204, call(HttpMethod.DELETE, "categories/$empty", bearer = c.token).response.status)
     }
 }
