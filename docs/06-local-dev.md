@@ -44,7 +44,7 @@ Reglas para agentes:
 | Seed del owner dev | `scripts/seed.sh` | Hecho |
 | Perfil Spring `local` (`application-local.yml`) y `test` | `backend/` | Hecho |
 | Datos demo de catálogo (idempotente) | `backend/` | BL-111 |
-| Tests de integración con Testcontainers reutilizables | `backend/` | BL-002/BL-012 |
+| Tests de integración con Testcontainers reutilizables (`IntegrationTestBase`) | `backend/` | Hecho (BL-012) |
 | Proxy de Vite al backend / CORS local | `frontend/` | BL-005 |
 | Servicios `backend`+`frontend` en compose (profile `full`) | `docker-compose.yml` | BL-160 |
 
