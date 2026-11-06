@@ -142,6 +142,27 @@ class CatalogService(
         return products.save(product).toDto()
     }
 
+    // ---- API para otros módulos (stock, ...) ----
+
+    /** 404 si el producto no existe o es de otro hogar. */
+    @Transactional(readOnly = true)
+    fun requireProduct(
+        householdId: UUID,
+        id: UUID,
+    ): ProductDto = product(householdId, id).toDto()
+
+    /** Nombres por id, limitado al hogar. */
+    @Transactional(readOnly = true)
+    fun productNames(
+        householdId: UUID,
+        ids: Collection<UUID>,
+    ): Map<UUID, String> =
+        if (ids.isEmpty()) {
+            emptyMap()
+        } else {
+            products.findAllById(ids).filter { it.householdId == householdId }.associate { it.id to it.name }
+        }
+
     // ---- helpers ----
 
     private fun category(
