@@ -43,21 +43,12 @@ export function createUnauthorizedMiddleware(
 }
 
 /**
- * Normaliza la baseUrl:
- * - Si es relativa y existe window.location.origin (navegador o jsdom),
- *   la convierte en absoluta para compatibilidad con el constructor Request.
- * - Respeta variables de entorno (VITE_API_BASE_URL) o el valor por defecto '/api/v1'.
+ * Resuelve la baseUrl: parámetro explícito > VITE_API_BASE_URL > '/api/v1' (relativa,
+ * funciona con el proxy de Vite). No toca window.location: en tests (jsdom) la base
+ * absoluta se define en src/test/setup.ts.
  */
 export function normalizeBaseUrl(baseUrl?: string): string {
-  const envBase = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) as
-    string | undefined
-  const raw = baseUrl || envBase || '/api/v1'
-
-  if (raw.startsWith('/') && typeof window !== 'undefined' && window.location?.origin) {
-    return `${window.location.origin}${raw}`
-  }
-
-  return raw
+  return baseUrl || import.meta.env.VITE_API_BASE_URL || '/api/v1'
 }
 
 /**
@@ -78,7 +69,7 @@ export function createAuthMiddleware(
 
 /**
  * Crea una instancia configurada del cliente OpenAPI typed.
- * Base URL por defecto: /api/v1 (relativo/origin-aware, compatible con proxy de Vite y producción).
+ * Base URL por defecto: /api/v1 (relativa, compatible con el proxy de Vite) o VITE_API_BASE_URL.
  */
 export function createApiClient(options: ApiClientOptions = {}): Client<paths> {
   const {
@@ -91,10 +82,9 @@ export function createApiClient(options: ApiClientOptions = {}): Client<paths> {
 
   const client = createClient<paths>({
     baseUrl: normalizeBaseUrl(baseUrl),
-    // Usar función dinámica para evaluar globalThis.fetch en cada llamada.
-    // Esto asegura que mocks como MSW (server.listen()) sean respetados aunque
-    // el cliente se instancie a nivel de módulo antes del hook beforeAll de tests.
-    fetch: customFetch ?? ((input: Request) => globalThis.fetch(input)),
+    // Sin fetch propio, openapi-fetch usa globalThis.fetch capturado al crear el cliente;
+    // por eso el singleton es lazy (getApiClient) y así MSW ya está activo al instanciarlo.
+    ...(customFetch ? { fetch: customFetch } : {}),
     ...restOptions,
   })
 
@@ -160,7 +150,19 @@ export async function unwrapVoid(promise: Promise<ApiResult<unknown>>): Promise<
   await settle(promise)
 }
 
+let apiClientInstance: Client<paths> | null = null
+
 /**
- * Instancia singleton por defecto del cliente API.
+ * Singleton lazy del cliente API: se crea en el primer uso (no al importar el módulo).
  */
-export const apiClient: Client<paths> = createApiClient()
+export function getApiClient(): Client<paths> {
+  apiClientInstance ??= createApiClient()
+  return apiClientInstance
+}
+
+/**
+ * Descarta el singleton (útil entre tests o al cambiar de configuración).
+ */
+export function resetApiClient(): void {
+  apiClientInstance = null
+}

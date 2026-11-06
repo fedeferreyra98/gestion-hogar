@@ -137,7 +137,7 @@ describe('apiClient & auth middleware', () => {
       }),
     )
 
-    const client = createApiClient({ baseUrl: '/api/v1' })
+    const client = createApiClient()
     setAccessToken('mock-access-token-123')
 
     const result = await unwrap(client.GET('/me'))
@@ -173,7 +173,7 @@ describe('apiClient & auth middleware', () => {
       }),
     )
 
-    const client = createApiClient({ baseUrl: '/api/v1' })
+    const client = createApiClient()
     clearAccessToken()
 
     await unwrap(client.GET('/me'))
@@ -207,7 +207,7 @@ describe('apiClient & auth middleware', () => {
       }),
     )
 
-    const client = createApiClient({ baseUrl: '/api/v1' })
+    const client = createApiClient()
     setAccessToken('default-token')
 
     await unwrap(
@@ -240,7 +240,7 @@ describe('apiClient & auth middleware', () => {
       }),
     )
 
-    const client = createApiClient({ baseUrl: '/api/v1' })
+    const client = createApiClient()
 
     await expect(
       unwrap(
@@ -277,7 +277,7 @@ describe('apiClient & auth middleware', () => {
       }),
     )
 
-    const client = createApiClient({ baseUrl: '/api/v1' })
+    const client = createApiClient()
 
     await expect(unwrap(client.GET('/me'))).rejects.toSatisfy((err: unknown) => {
       expect(isProblemError(err)).toBe(true)
@@ -296,7 +296,7 @@ describe('unwrap robustness', () => {
 
   it('wraps network failures (fetch TypeError) in ProblemError with status 0', async () => {
     server.use(http.get('*/api/v1/me', () => HttpResponse.error()))
-    const client = createApiClient({ baseUrl: '/api/v1' })
+    const client = createApiClient()
 
     await expect(unwrap(client.GET('/me'))).rejects.toSatisfy((err: unknown) => {
       expect(isProblemError(err)).toBe(true)
@@ -309,7 +309,6 @@ describe('unwrap robustness', () => {
 
   it('wraps a throwing token provider in ProblemError', async () => {
     const client = createApiClient({
-      baseUrl: '/api/v1',
       getToken: async () => {
         throw new Error('token boom')
       },
@@ -325,7 +324,6 @@ describe('unwrap robustness', () => {
 
   it('re-throws AbortError untouched when the caller aborts', async () => {
     const client = createApiClient({
-      baseUrl: '/api/v1',
       fetch: async () => {
         throw new DOMException('The operation was aborted.', 'AbortError')
       },
@@ -347,7 +345,7 @@ describe('unwrap robustness', () => {
         }),
       ),
     )
-    const client = createApiClient({ baseUrl: '/api/v1' })
+    const client = createApiClient()
 
     await expect(unwrap(client.GET('/me'))).rejects.toSatisfy((err: unknown) => {
       expect(isProblemError(err)).toBe(true)
@@ -372,7 +370,7 @@ describe('unwrap robustness', () => {
 
   it('unwrapVoid resolves undefined on 204', async () => {
     server.use(http.get('*/api/v1/me', () => new HttpResponse(null, { status: 204 })))
-    const client = createApiClient({ baseUrl: '/api/v1' })
+    const client = createApiClient()
 
     const result: void = await unwrapVoid(client.GET('/me'))
     expect(result).toBeUndefined()
@@ -380,7 +378,7 @@ describe('unwrap robustness', () => {
 
   it('unwrap rejects with EMPTY_RESPONSE when a body was expected but 204 arrived', async () => {
     server.use(http.get('*/api/v1/me', () => new HttpResponse(null, { status: 204 })))
-    const client = createApiClient({ baseUrl: '/api/v1' })
+    const client = createApiClient()
 
     await expect(unwrap(client.GET('/me'))).rejects.toSatisfy((err: unknown) => {
       expect(isProblemError(err)).toBe(true)
@@ -391,7 +389,7 @@ describe('unwrap robustness', () => {
 
   it('unwrapVoid still throws ProblemError on HTTP failure', async () => {
     server.use(http.get('*/api/v1/me', () => new HttpResponse(null, { status: 503 })))
-    const client = createApiClient({ baseUrl: '/api/v1' })
+    const client = createApiClient()
     await expect(unwrapVoid(client.GET('/me'))).rejects.toBeInstanceOf(ProblemError)
   })
 
@@ -405,7 +403,7 @@ describe('unwrap robustness', () => {
     it('is called on 401 when the request carried Authorization, error still propagates', async () => {
       server.use(http.get('*/api/v1/me', unauthorized))
       const onUnauthorized = vi.fn()
-      const client = createApiClient({ baseUrl: '/api/v1', onUnauthorized })
+      const client = createApiClient({ onUnauthorized })
       setAccessToken('expired-token')
 
       await expect(unwrap(client.GET('/me'))).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
@@ -416,7 +414,7 @@ describe('unwrap robustness', () => {
     it('is not called on 401 from /auth/login', async () => {
       server.use(http.post('*/api/v1/auth/login', unauthorized))
       const onUnauthorized = vi.fn()
-      const client = createApiClient({ baseUrl: '/api/v1', onUnauthorized })
+      const client = createApiClient({ onUnauthorized })
       setAccessToken('some-token')
 
       await expect(
@@ -427,7 +425,7 @@ describe('unwrap robustness', () => {
 
     it('does nothing without a hook and still throws ProblemError', async () => {
       server.use(http.get('*/api/v1/me', unauthorized))
-      const client = createApiClient({ baseUrl: '/api/v1' })
+      const client = createApiClient()
       setAccessToken('expired-token')
 
       await expect(unwrap(client.GET('/me'))).rejects.toBeInstanceOf(ProblemError)
