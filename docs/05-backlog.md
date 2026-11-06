@@ -70,7 +70,7 @@ CA: tests de integración: registro (409 si ya existe hogar), login ok/inválido
 UC-03: `GET/POST/PATCH /members`, `PUT /household`, `GET /me`. Roles (`@PreAuthorize`).
 CA: MEMBER no puede crear (403); desactivado no loguea.
 
-**BL-104 · Migración V2 + módulo catálogo [M] · BL-103** · `TODO`
+**BL-104 · Migración V2 + módulo catálogo [M] · BL-103** · `DONE`
 Tablas `category`, `product`; endpoints de categorías y productos con búsqueda `q`, archivado. UC-04.
 CA: nombre único case-insensitive (409); no se borra categoría con productos (409); búsqueda paginada.
 
