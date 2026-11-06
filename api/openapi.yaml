@@ -783,7 +783,6 @@ paths:
           schema: { $ref: '#/components/schemas/StockStatus' }
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
-        - $ref: '#/components/parameters/Sort'
       responses:
         '200':
           description: Página de lotes
@@ -808,6 +807,7 @@ paths:
               schema: { $ref: '#/components/schemas/StockItem' }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /stock/consume:
     post:
       tags: [Stock]
@@ -826,6 +826,7 @@ paths:
               schema: { $ref: '#/components/schemas/ConsumeResult' }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/BusinessRule' }
   /stock/alerts:
     get:
@@ -874,6 +875,7 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /stock/{id}/consume:
     post:
       tags: [Stock]
@@ -895,6 +897,7 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/BusinessRule' }
   /stock/{id}/discard:
     post:
@@ -915,6 +918,7 @@ paths:
               schema: { $ref: '#/components/schemas/StockItem' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
 components:
   securitySchemes:
