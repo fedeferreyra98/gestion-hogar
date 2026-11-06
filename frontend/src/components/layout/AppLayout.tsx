@@ -1,4 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import { logout } from '@/auth/session'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { navItems } from './nav-items'
 
@@ -23,9 +25,17 @@ export function AppLayout() {
           ))}
         </nav>
       </aside>
-      <main className="flex-1 p-4 pb-24 md:pb-4">
-        <Outlet />
-      </main>
+      <div className="flex flex-1 flex-col">
+        <header className="flex items-center justify-between border-b border-border px-4 py-2">
+          <p className="font-semibold md:invisible">Gestión del Hogar</p>
+          <Button variant="ghost" size="sm" onClick={() => void logout()}>
+            Cerrar sesión
+          </Button>
+        </header>
+        <main className="flex-1 p-4 pb-24 md:pb-4">
+          <Outlet />
+        </main>
+      </div>
       <nav
         aria-label="Navegación inferior"
         className="fixed inset-x-0 bottom-0 grid grid-cols-3 border-t border-border bg-background pb-[env(safe-area-inset-bottom)] md:hidden"

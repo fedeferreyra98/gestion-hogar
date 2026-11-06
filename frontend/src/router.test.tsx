@@ -4,9 +4,11 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { MemoryRouter } from 'react-router-dom'
 import { AppRoutes } from './AppRoutes'
+import { applyTokens, resetSession } from './auth/session'
 import { server } from './test/server'
 
 function renderAt(path: string) {
+  applyTokens({ accessToken: 'test-access', refreshToken: 'test-refresh', expiresInSeconds: 900 })
   return render(
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={[path]}>
@@ -17,6 +19,8 @@ function renderAt(path: string) {
 }
 
 describe('app shell', () => {
+  afterEach(() => resetSession())
+
   it('redirects / to Listas', async () => {
     renderAt('/')
     expect(await screen.findByRole('heading', { name: 'Listas' })).toBeInTheDocument()

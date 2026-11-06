@@ -151,12 +151,24 @@ export async function unwrapVoid(promise: Promise<ApiResult<unknown>>): Promise<
 }
 
 let apiClientInstance: Client<paths> | null = null
+let unauthorizedHandler: ((response: Response) => void | Promise<void>) | null = null
+
+/**
+ * Registra el manejador del 401 del singleton (lo usa la UI de auth para refrescar la sesión).
+ */
+export function setUnauthorizedHandler(
+  handler: ((response: Response) => void | Promise<void>) | null,
+): void {
+  unauthorizedHandler = handler
+}
 
 /**
  * Singleton lazy del cliente API: se crea en el primer uso (no al importar el módulo).
  */
 export function getApiClient(): Client<paths> {
-  apiClientInstance ??= createApiClient()
+  apiClientInstance ??= createApiClient({
+    onUnauthorized: (response) => unauthorizedHandler?.(response),
+  })
   return apiClientInstance
 }
 

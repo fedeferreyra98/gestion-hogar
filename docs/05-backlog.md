@@ -109,10 +109,11 @@ CA: el smoke cubre UC-13 completo (lista → compra → gasto + stock) y falla s
 
 ## Fase 1 (MVP) — Frontend
 
-**BL-151 · Auth UI [M] · BL-006, BL-102** · `TODO`
+**BL-151 · Auth UI [M] · BL-006, BL-102** · `DONE`
 Pantallas: registro de hogar (si no existe), login. Guardado de tokens, refresh automático, rutas protegidas, logout.
 CA: tests RTL del flujo; redirección al expirar sesión.
 Nota (BL-006): el refresh automático vive acá, no en el cliente API. Debe usar el gancho `onUnauthorized` de `createApiClient` (se invoca ante un 401 con Authorization, excepto `/auth/login`, `/auth/refresh` y `/auth/register-owner`; no reintenta ni refresca por sí mismo).
+Supuestos (BL-151): el contrato no expone si ya existe un hogar, así que `/registro` siempre está accesible desde el login y un `409` se muestra como "Ya existe un hogar". El access token vive en memoria y el refresh token en `localStorage` (`gh.refreshToken`); al arrancar se restaura la sesión canjeándolo. El refresh es single-flight; tras refrescar, la UI reintenta una vez las queries que fallaron con 401. Si el refresh falla (400/401) se limpia la sesión y se redirige a `/login` con aviso de expiración.
 
 **BL-152 · Catálogo UI [S] · BL-151, BL-104** · `TODO`
 ABM de categorías y productos; componente `ProductPicker` (autocompletado con creación al vuelo) reutilizable.
