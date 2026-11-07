@@ -2,6 +2,7 @@ package ar.hogar.auth
 
 import ar.hogar.common.ConflictException
 import ar.hogar.common.UnauthorizedException
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -11,6 +12,11 @@ import java.time.Clock
 import java.util.Base64
 import java.util.HexFormat
 import java.util.UUID
+
+/** Se publica al crear el hogar (los listeners transaccionales corren tras el commit). */
+data class HouseholdRegisteredEvent(
+    val householdId: UUID,
+)
 
 /** UC-01/UC-02, ADR-008: access JWT + refresh opaco (hash SHA-256 en BD) con rotación. */
 @Service
@@ -22,6 +28,7 @@ class AuthService(
     private val jwt: JwtService,
     private val props: AuthProperties,
     private val clock: Clock,
+    private val events: ApplicationEventPublisher,
 ) {
     private val random = SecureRandom()
 
@@ -51,6 +58,7 @@ class AuthService(
                     updatedAt = now,
                 ),
             )
+        events.publishEvent(HouseholdRegisteredEvent(household.id))
         return issueTokens(owner)
     }
 

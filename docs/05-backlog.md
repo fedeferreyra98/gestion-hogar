@@ -93,7 +93,7 @@ Migración V6 (`purchase`, `purchase_item`). `PurchaseService.completeList` tran
 CA: test de integración del flujo completo (lista → compra → gasto + stock + lista COMPLETED); rollback total si falla el alta de stock (test forzando error); reintento → `LIST_NOT_OPEN`; `leftoverAction=NEW_LIST` crea lista con los no tildados; vencimiento por `defaultShelfLifeDays`; editar compra recalcula el gasto.
 Supuestos (BL-108): ver "Cambios de contrato" de `04-api-interfaces.md`. Resumen: lock pesimista de la lista (concurrencia → `LIST_NOT_OPEN`); pendientes = ítems sin tildar no comprados (sin pendientes no se crea lista nueva); editar una compra reemplaza ítems y recalcula el gasto pero no toca el stock ya creado (queda desvinculado, `ON DELETE SET NULL`); no hay reparto de gasto (Fase 2), por eso no se usa `Allocator` en esta tarea; `Purchase` no expone el id de la lista nueva.
 
-**BL-109 · Sugerencias de lista [M] · BL-106, BL-108** · `TODO`
+**BL-109 · Sugerencias de lista [M] · BL-106, BL-108** · `DONE`
 UC-12, DM §Sugerencias.
 CA: tests con datos: producto sin stock tras compra previa, producto por vencer, exclusión de ya listados.
 
@@ -102,13 +102,14 @@ CA: tests con datos: producto sin stock tras compra previa, producto por vencer,
 CA: tests de agregación con varios meses y categorías; montos por moneda.
 Supuestos (BL-110): ver "Cambios de contrato" de `04-api-interfaces.md`. Resumen: una fila por (grupo, moneda), sin mezclar monedas; gastos borrados excluidos; `store` solo cuenta gastos `PURCHASE`; paquete aislado `ar.hogar.report`, sin migración.
 
-**BL-111 · Seed de datos de desarrollo [S] · BL-108** · `TODO`
+**BL-111 · Seed de datos de desarrollo [S] · BL-108** · `DONE`
 Perfil `local` carga categorías comunes (Almacén, Lácteos, Limpieza, Verdura, Carne, Bebidas, Higiene) y ~30 productos con vida útil típica.
 CA: arranque con perfil `local` los carga una sola vez (idempotente).
 
-**BL-013 · Localdev: verificación continua del smoke [S] · BL-102, BL-108** · `TODO`
+**BL-013 · Localdev: verificación continua del smoke [S] · BL-102, BL-108** · `DONE`
 Extender `scripts/smoke.sh` a medida que se agregan endpoints (stock, gastos, sugerencias) y sumar un job opcional de CI que levante Postgres, arranque el backend y ejecute `make smoke`.
 CA: el smoke cubre UC-13 completo (lista → compra → gasto + stock) y falla si se rompe el flujo.
+Supuestos (BL-013): el smoke asume moneda base `ARS` (override con `SMOKE_BASE_CURRENCY`) y usa un sufijo único por corrida (no requiere base vacía; es idempotente). El job de CI vive en `.github/workflows/smoke.yml`, separado de `ci.yml` y opcional: se dispara con `workflow_dispatch` o con la etiqueta `run-smoke` en un PR, así que nunca es un check requerido de `main`.
 
 ---
 

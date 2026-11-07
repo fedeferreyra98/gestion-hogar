@@ -103,7 +103,7 @@ Para cada moneda y rango de fechas opcional, con gastos `shared = true` y no eli
 
 - `OUT_OF_STOCK`: productos con ≥ 1 compra histórica y stock activo total = 0.
 - `EXPIRING` / `EXPIRED`: productos con algún ítem activo en ese estado.
-- Excluir los que ya están en la lista abierta destino. Máximo 50 resultados, ordenados por motivo y luego nombre.
+- Excluir los que ya están en la lista destino (`{id}` del endpoint; se acepta una lista en cualquier estado, como indica docs/04). Máximo 50 resultados, ordenados por motivo y luego nombre; el corte se aplica en memoria después de unir y ordenar ambos conjuntos (el universo de sugerencias es acotado por el catálogo del hogar).
 
 ### Completar lista (UC-13) — pseudocódigo
 

@@ -422,20 +422,23 @@ paths:
               schema: { $ref: '#/components/schemas/ShoppingList' }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-  /shopping-lists/suggestions:
+  /shopping-lists/{id}/suggestions:
     get:
       tags: [ShoppingLists]
       operationId: getShoppingSuggestions
-      summary: Sugerencias de compra (UC-12)
+      summary: Sugerencias de compra para una lista (UC-12)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
       responses:
         '200':
-          description: Sugerencias
+          description: Sugerencias (máx. 50), excluye los productos ya listados
           content:
             application/json:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Suggestion' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /shopping-lists/{id}:
     get:
       tags: [ShoppingLists]
