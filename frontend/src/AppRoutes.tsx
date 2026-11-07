@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { RequireAuth } from '@/auth/RequireAuth'
 import { CatalogPage } from '@/pages/CatalogPage'
+import { ExpensesPage } from '@/pages/ExpensesPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { Placeholder } from '@/pages/Placeholder'
 import { RegisterPage } from '@/pages/RegisterPage'
@@ -15,7 +16,7 @@ export function AppRoutes() {
         <Route element={<AppLayout />}>
           <Route index element={<Navigate to="/listas" replace />} />
           <Route path="listas" element={<Placeholder title="Listas" />} />
-          <Route path="gastos" element={<Placeholder title="Gastos" />} />
+          <Route path="gastos/*" element={<ExpensesPage />} />
           <Route path="stock" element={<Placeholder title="Stock" />} />
           <Route path="catalogo" element={<CatalogPage />} />
         </Route>
