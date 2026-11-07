@@ -131,6 +131,7 @@ class ReportIntegrationTest : IntegrationTestBase() {
         productId: String,
         unitPrice: Long,
         total: Long = unitPrice,
+        unit: String = "UNIT",
     ) {
         val r =
             call(
@@ -146,7 +147,7 @@ class ReportIntegrationTest : IntegrationTestBase() {
                             mapOf(
                                 "productId" to productId,
                                 "quantity" to "1",
-                                "unit" to "UNIT",
+                                "unit" to unit,
                                 "unitPrice" to money(unitPrice),
                             ),
                         ),
@@ -263,7 +264,7 @@ class ReportIntegrationTest : IntegrationTestBase() {
             listOf(
                 Triple("super mock", 1500L, "ARS"),
                 Triple("kiosco mock", 200L, "ARS"),
-                Triple("unspecified", 50L, "ARS"),
+                Triple("", 50L, "ARS"),
             ),
             rows(r),
         )
@@ -358,5 +359,91 @@ class ReportIntegrationTest : IntegrationTestBase() {
         val r = call(HttpMethod.GET, "products/$mine/price-history", bearer = a.token)
         assertEquals(200, r.response.status)
         assertEquals(0, body(r).size())
+    }
+
+    @Test
+    fun `category summary puts every purchase expense under uncategorized next to categorized manual ones`() {
+        val c = owner()
+        val lacteos = category(c, "Lácteos")
+        expense(c, "2026-02-01", 1000, lacteos)
+        expense(c, "2026-02-02", 300)
+        purchase(c, "2026-02-03", "Super Mock", product(c, "Leche"), 2000)
+        purchase(c, "2026-02-04", "Kiosco Mock", product(c, "Pan"), 500)
+
+        val r = call(HttpMethod.GET, "expenses/summary?groupBy=category", bearer = c.token)
+        assertEquals(
+            listOf(Triple("uncategorized", 2800L, "ARS"), Triple(lacteos, 1000L, "ARS")),
+            rows(r),
+        )
+        assertEquals("Sin categoría", body(r)[0]["label"].asText())
+    }
+
+    @Test
+    fun `store summary keeps currencies apart and a store named unspecified does not collide`() {
+        val c = owner()
+        val p = product(c, "Pan")
+        purchase(c, "2026-01-05", "Unspecified", p, 400)
+        purchase(c, "2026-01-06", null, p, 100)
+        // compra en USD insertada directo (la API solo acepta la moneda base)
+        val expenseId = UUID.randomUUID()
+        foreignExpense(c, "2026-01-07", 900, "USD")
+        jdbc.update("UPDATE expense SET id = ?, source = 'PURCHASE' WHERE currency = 'USD'", expenseId)
+        jdbc.update(
+            "INSERT INTO purchase (id, household_id, store, purchase_date, total_minor, currency, paid_by, " +
+                "expense_id, created_by, created_at, updated_at) " +
+                "VALUES (?, ?, 'Unspecified', '2026-01-07', 900, 'USD', ?::uuid, ?, ?::uuid, now(), now())",
+            UUID.randomUUID(),
+            c.householdId,
+            c.memberId,
+            expenseId,
+            c.memberId,
+        )
+
+        val r = call(HttpMethod.GET, "expenses/summary?groupBy=store", bearer = c.token)
+        assertEquals(
+            listOf(
+                Triple("unspecified", 400L, "ARS"),
+                Triple("", 100L, "ARS"),
+                Triple("unspecified", 900L, "USD"),
+            ),
+            rows(r),
+        )
+        assertEquals(listOf("Unspecified", "Sin comercio", "Unspecified"), body(r).map { it["label"].asText() })
+    }
+
+    @Test
+    fun `price history carries the unit of each line and can be filtered by unit`() {
+        val c = owner()
+        val queso = product(c, "Queso")
+        purchase(c, "2026-01-10", "Super Mock", queso, 800000, unit = "KG")
+        purchase(c, "2026-02-10", "Super Mock", queso, 900, unit = "G")
+        purchase(c, "2026-03-10", "Super Mock", queso, 820000, unit = "KG")
+
+        val all = body(call(HttpMethod.GET, "products/$queso/price-history", bearer = c.token))
+        assertEquals(listOf("KG", "G", "KG"), all.map { it["unit"].asText() })
+
+        val kg = body(call(HttpMethod.GET, "products/$queso/price-history?unit=KG", bearer = c.token))
+        assertEquals(listOf(800000L, 820000L), kg.map { it["unitPrice"]["amountMinor"].asLong() })
+        val g = body(call(HttpMethod.GET, "products/$queso/price-history?unit=G", bearer = c.token))
+        assertEquals(listOf(900L), g.map { it["unitPrice"]["amountMinor"].asLong() })
+        assertEquals(
+            400,
+            call(HttpMethod.GET, "products/$queso/price-history?unit=BOX", bearer = c.token).response.status,
+        )
+    }
+
+    @Test
+    fun `price history includes archived products and skips soft-deleted expenses`() {
+        val c = owner()
+        val leche = product(c, "Leche")
+        purchase(c, "2026-01-10", "Super Mock", leche, 1000)
+        purchase(c, "2026-02-10", "Super Mock", leche, 1100)
+        jdbc.update(
+            "UPDATE expense SET deleted_at = now() WHERE id = (SELECT expense_id FROM purchase WHERE purchase_date = '2026-02-10')",
+        )
+        assertEquals(200, call(HttpMethod.POST, "products/$leche/archive", bearer = c.token).response.status)
+
+        val b = body(call(HttpMethod.GET, "products/$leche/price-history", bearer = c.token))
+        assertEquals(listOf("2026-01-10"), b.map { it["date"].asText() })
     }
 }

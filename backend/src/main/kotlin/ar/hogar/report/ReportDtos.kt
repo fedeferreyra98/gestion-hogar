@@ -1,5 +1,6 @@
 package ar.hogar.report
 
+import ar.hogar.catalog.Unit
 import ar.hogar.expense.MoneyDto
 import java.time.LocalDate
 
@@ -14,6 +15,8 @@ data class PricePointDto(
     val date: LocalDate,
     val store: String?,
     val unitPrice: MoneyDto,
+    /** Unidad de la línea de compra: el precio es por esta unidad (no se convierte KG↔G). */
+    val unit: Unit,
 )
 
 enum class SummaryGroupBy(

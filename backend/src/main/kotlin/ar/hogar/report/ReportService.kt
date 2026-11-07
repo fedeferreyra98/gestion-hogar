@@ -1,6 +1,7 @@
 package ar.hogar.report
 
 import ar.hogar.catalog.ProductRepository
+import ar.hogar.catalog.Unit
 import ar.hogar.common.FieldError
 import ar.hogar.common.NotFoundException
 import ar.hogar.common.ValidationException
@@ -41,11 +42,12 @@ class ReportService(
         productId: UUID,
         from: LocalDate?,
         to: LocalDate?,
+        unit: Unit?,
     ): List<PricePointDto> {
         products.findById(productId).orElse(null)?.takeIf { it.householdId == householdId }
             ?: throw NotFoundException("Product not found")
         requireRange(from, to)
-        return reports.priceHistory(householdId, productId, from, to)
+        return reports.priceHistory(householdId, productId, from, to, unit)
     }
 
     private fun requireRange(

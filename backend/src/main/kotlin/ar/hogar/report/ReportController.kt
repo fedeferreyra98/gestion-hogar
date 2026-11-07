@@ -1,5 +1,6 @@
 package ar.hogar.report
 
+import ar.hogar.catalog.Unit
 import org.springframework.format.annotation.DateTimeFormat
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
@@ -35,5 +36,6 @@ class ReportController(
         @PathVariable id: UUID,
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) from: LocalDate?,
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) to: LocalDate?,
-    ): List<PricePointDto> = service.priceHistory(jwt.householdId(), id, from, to)
+        @RequestParam(required = false) unit: Unit?,
+    ): List<PricePointDto> = service.priceHistory(jwt.householdId(), id, from, to, unit)
 }

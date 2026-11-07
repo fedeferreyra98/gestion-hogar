@@ -1,5 +1,6 @@
 package ar.hogar.report
 
+import ar.hogar.catalog.Unit
 import ar.hogar.expense.MoneyDto
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
@@ -47,10 +48,10 @@ class ReportRepository(
                 // El comercio sale de las compras: los gastos manuales no tienen comercio y no entran.
                 SummaryGroupBy.STORE ->
                     Sql(
-                        "coalesce(nullif(lower(trim(p.store)), ''), 'unspecified') as k, " +
+                        "coalesce(nullif(lower(trim(p.store)), ''), '') as k, " +
                             "coalesce(min(nullif(trim(p.store), '')), 'Sin comercio') as label",
                         "join purchase p on p.expense_id = e.id",
-                        "coalesce(nullif(lower(trim(p.store)), ''), 'unspecified')",
+                        "coalesce(nullif(lower(trim(p.store)), ''), '')",
                         "e.currency asc, total desc, label asc, k asc",
                     )
             }
@@ -75,6 +76,7 @@ class ReportRepository(
         productId: UUID,
         from: LocalDate?,
         to: LocalDate?,
+        unit: Unit?,
     ): List<PricePointDto> {
         val params =
             MapSqlParameterSource()
@@ -89,8 +91,12 @@ class ReportRepository(
             range.append(" and p.purchase_date <= :to")
             params.addValue("to", java.sql.Date.valueOf(to))
         }
+        if (unit != null) {
+            range.append(" and i.unit = :unit")
+            params.addValue("unit", unit.name)
+        }
         val sql =
-            "select p.purchase_date, p.store, trim(p.currency) as currency, i.unit_price_minor " +
+            "select p.purchase_date, p.store, trim(p.currency) as currency, i.unit_price_minor, i.unit " +
                 "from purchase_item i join purchase p on p.id = i.purchase_id " +
                 "join expense e on e.id = p.expense_id " +
                 "where p.household_id = :householdId and i.product_id = :productId " +
@@ -101,6 +107,7 @@ class ReportRepository(
                 date = rs.getDate("purchase_date").toLocalDate(),
                 store = rs.getString("store"),
                 unitPrice = MoneyDto(rs.getLong("unit_price_minor"), rs.getString("currency")),
+                unit = Unit.valueOf(rs.getString("unit")),
             )
         }
     }
