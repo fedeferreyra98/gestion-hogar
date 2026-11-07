@@ -1,14 +1,14 @@
 package ar.hogar.suggestion
 
 import ar.hogar.catalog.Product
-import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.Repository
 import org.springframework.data.repository.query.Param
 import java.time.LocalDate
 import java.util.UUID
 
 /** Consultas de solo lectura de UC-12; todas acotadas al hogar, a productos activos y fuera de la lista destino. */
-interface SuggestionRepository : JpaRepository<Product, UUID> {
+interface SuggestionRepository : Repository<Product, UUID> {
     /** Productos comprados alguna vez y sin ningún lote `ACTIVE`. Devuelve `[id, name]`. */
     @Query(
         """

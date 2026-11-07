@@ -261,6 +261,35 @@ class SuggestionIntegrationTest : IntegrationTestBase() {
     }
 
     @Test
+    fun `a COMPLETED list is accepted and the MEMBER role can read suggestions`() {
+        val t = owner()
+        val p = product(t, "Yerba")
+        buy(t, p)
+        consumeAll(t, p)
+        val completed = newList(t)
+        jdbc.update("UPDATE shopping_list SET status = 'COMPLETED' WHERE id = ?::uuid", completed)
+        assertEquals(listOf("Yerba"), suggestions(t, completed).map { it.first })
+
+        call(
+            HttpMethod.POST,
+            "members",
+            mapOf("email" to "member@example.test", "displayName" to "Member Mock", "password" to PASSWORD),
+            t,
+        )
+        val member =
+            json(
+                call(HttpMethod.POST, "auth/login", mapOf("email" to "member@example.test", "password" to PASSWORD)),
+            )["accessToken"].asText()
+        assertEquals(listOf("Yerba"), suggestions(member, completed).map { it.first })
+    }
+
+    @Test
+    fun `a malformed list id answers 400`() {
+        val t = owner()
+        assertEquals(400, call(HttpMethod.GET, "shopping-lists/not-a-uuid/suggestions", bearer = t).response.status)
+    }
+
+    @Test
     fun `at most 50 suggestions are returned`() {
         val t = owner()
         val list = newList(t)

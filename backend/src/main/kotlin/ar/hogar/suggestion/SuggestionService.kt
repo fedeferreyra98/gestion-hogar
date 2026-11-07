@@ -59,6 +59,7 @@ class SuggestionService(
             repo.outOfStock(householdId, listId).map {
                 SuggestionDto(ProductRefDto(it[0] as UUID, it[1] as String), SuggestionReason.OUT_OF_STOCK)
             }
+        // El corte a MAX_RESULTS es en memoria: hay que ordenar la unión de ambos conjuntos antes de cortar.
         return (outOfStock + expiring)
             .sortedWith(compareBy({ it.reason }, { it.product.name.lowercase() }, { it.product.id }))
             .take(MAX_RESULTS)
