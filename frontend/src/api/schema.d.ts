@@ -253,7 +253,10 @@ export interface paths {
       path?: never
       cookie?: never
     }
-    /** Histórico de precios unitarios de un producto */
+    /**
+     * Histórico de precios unitarios de un producto
+     * @description Un punto por línea de compra del producto (orden cronológico ascendente), con la moneda de la compra: no mezcla monedas, cada punto lleva la suya. `from > to` → 400; producto de otro hogar → 404.
+     */
     get: operations['getPriceHistory']
     put?: never
     post?: never
@@ -449,7 +452,10 @@ export interface paths {
       path?: never
       cookie?: never
     }
-    /** Resumen de gastos agrupado (UC-23) */
+    /**
+     * Resumen de gastos agrupado (UC-23)
+     * @description Una fila por (grupo, moneda): nunca mezcla monedas. Excluye gastos borrados. `month` → key `YYYY-MM`; `category` → key = id de la categoría (`uncategorized` si no tiene); `store` → solo gastos de compras (`source=PURCHASE`), key = comercio en minúsculas (`unspecified` si la compra no tiene comercio). `from`/`to` inclusivos sobre `expenseDate`; `from > to` o `groupBy` inválido → 400.
+     */
     get: operations['getExpenseSummary']
     put?: never
     post?: never
@@ -1612,6 +1618,7 @@ export interface operations {
           'application/json': components['schemas']['PricePoint'][]
         }
       }
+      400: components['responses']['ValidationError']
       401: components['responses']['Unauthorized']
       404: components['responses']['NotFound']
     }

@@ -97,9 +97,10 @@ Supuestos (BL-108): ver "Cambios de contrato" de `04-api-interfaces.md`. Resumen
 UC-12, DM §Sugerencias.
 CA: tests con datos: producto sin stock tras compra previa, producto por vencer, exclusión de ya listados.
 
-**BL-110 · Reportes de gasto [M] · BL-107, BL-108** · `TODO`
+**BL-110 · Reportes de gasto [M] · BL-107, BL-108** · `DONE`
 `GET /expenses/summary` (mes/categoría/comercio), `GET /products/{id}/price-history`. UC-23.
 CA: tests de agregación con varios meses y categorías; montos por moneda.
+Supuestos (BL-110): ver "Cambios de contrato" de `04-api-interfaces.md`. Resumen: una fila por (grupo, moneda), sin mezclar monedas; gastos borrados excluidos; `store` solo cuenta gastos `PURCHASE`; paquete aislado `ar.hogar.report`, sin migración.
 
 **BL-111 · Seed de datos de desarrollo [S] · BL-108** · `TODO`
 Perfil `local` carga categorías comunes (Almacén, Lácteos, Limpieza, Verdura, Carne, Bebidas, Higiene) y ~30 productos con vida útil típica.
