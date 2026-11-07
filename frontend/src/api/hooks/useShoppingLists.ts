@@ -20,6 +20,7 @@ import type {
   ShoppingListItemInput,
   ShoppingListStatus,
   ShoppingListSummaryPage,
+  Suggestion,
   paths,
 } from '../types.ts'
 
@@ -52,6 +53,20 @@ export async function fetchShoppingLists(
 export async function fetchShoppingList(id: string, client?: Client<paths>): Promise<ShoppingList> {
   return unwrap(
     (client ?? getApiClient()).GET('/shopping-lists/{id}', { params: { path: { id } } }),
+  )
+}
+
+export const shoppingSuggestionsQueryKey = (listId: string) =>
+  ['shopping-lists', 'suggestions', listId] as const
+
+export async function fetchShoppingSuggestions(
+  listId: string,
+  client?: Client<paths>,
+): Promise<Suggestion[]> {
+  return unwrap(
+    (client ?? getApiClient()).GET('/shopping-lists/{id}/suggestions', {
+      params: { path: { id: listId } },
+    }),
   )
 }
 
@@ -202,6 +217,17 @@ export function useShoppingList(
   return useQuery({
     queryKey: shoppingListQueryKey(id),
     queryFn: () => fetchShoppingList(id, options.client),
+  })
+}
+
+/** Sugerencias "Te puede faltar" (UC-12). Cuelga de la raíz de listas: agregar un ítem las revalida. */
+export function useShoppingSuggestions(
+  listId: string,
+  options: { client?: Client<paths> } = {},
+): UseQueryResult<Suggestion[], ProblemError> {
+  return useQuery({
+    queryKey: shoppingSuggestionsQueryKey(listId),
+    queryFn: () => fetchShoppingSuggestions(listId, options.client),
   })
 }
 

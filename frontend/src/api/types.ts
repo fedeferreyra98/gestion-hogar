@@ -45,6 +45,7 @@ export type LeftoverAction = Schemas['LeftoverAction']
 export type Purchase = Schemas['Purchase']
 export type ShoppingListItemInput = Schemas['ShoppingListItemInput']
 export type UpdateShoppingListItemRequest = Schemas['UpdateShoppingListItemRequest']
+export type Suggestion = Schemas['Suggestion']
 export type ShoppingListSummary = Schemas['ShoppingListSummary']
 export type ShoppingListSummaryPage = Omit<Schemas['ShoppingListSummaryPage'], 'content'> & {
   content: ShoppingListSummary[]

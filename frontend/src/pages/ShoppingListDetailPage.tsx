@@ -15,6 +15,7 @@ import { formatMinor } from '@/lib/money'
 import type { PurchaseCompletedState } from '@/shopping/complete/CompleteListWizard'
 import { ArchiveAction } from '@/shopping/ArchiveAction'
 import { parseQuantity } from '@/shopping/quantity'
+import { SuggestionsPanel } from '@/shopping/SuggestionsPanel'
 import { ShoppingItemRow } from '@/shopping/ShoppingItemRow'
 import { STATUS_LABELS, problemMessage } from '@/shopping/status'
 
@@ -252,6 +253,8 @@ function ShoppingListDetail({ id }: { id: string }) {
           Esta lista está {STATUS_LABELS[list.status].toLowerCase()} y es de solo lectura.
         </p>
       )}
+
+      {isOpen && <SuggestionsPanel listId={list.id} />}
 
       {message && (
         <p role="alert" className="text-sm text-red-600">
