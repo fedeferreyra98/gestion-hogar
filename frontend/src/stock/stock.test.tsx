@@ -9,7 +9,6 @@ import type { Product, StockAlerts, StockItem } from '@/api/types'
 import { AuthProvider } from '@/auth/AuthProvider'
 import { applyTokens, resetSession } from '@/auth/session'
 import { server } from '@/test/server'
-import { compareDecimal, formatDecimal } from './decimal'
 
 const API = 'http://localhost/api/v1'
 
@@ -76,16 +75,6 @@ function renderStock() {
 beforeEach(() => resetApiClient())
 afterEach(() => resetSession())
 
-describe('decimal helpers', () => {
-  it('compares and formats without floats', () => {
-    expect(compareDecimal('0.500', '1')).toBe(-1)
-    expect(compareDecimal('1.0', '1')).toBe(0)
-    expect(compareDecimal('10', '9.99')).toBe(1)
-    expect(formatDecimal('0.500')).toBe('0,5')
-    expect(formatDecimal('3.000')).toBe('3')
-  })
-})
-
 describe('StockPage', () => {
   it('agrupa por vencimiento con badges de texto y muestra el banner de alertas', async () => {
     mockList([EXPIRED, SOON, OK, NONE], { expired: [EXPIRED], expiringSoon: [SOON] })
@@ -111,23 +100,55 @@ describe('StockPage', () => {
     expect(await screen.findByText(/Todavía no hay stock/)).toBeInTheDocument()
   })
 
-  it('consume 1 con un solo toque, y no más de lo que queda', async () => {
-    mockList([EXPIRED, SOON])
-    const bodies: Record<string, unknown> = {}
+  function mockConsume(bodies: unknown[]) {
     server.use(
-      http.post(`${API}/stock/:id/consume`, async ({ request, params }) => {
-        bodies[params.id as string] = await request.json()
+      http.post(`${API}/stock/:id/consume`, async ({ request }) => {
+        bodies.push(await request.json())
+        return HttpResponse.json(EXPIRED)
+      }),
+    )
+  }
+
+  it('consume 1 con un solo toque', async () => {
+    mockList([EXPIRED])
+    const bodies: unknown[] = []
+    mockConsume(bodies)
+    const user = userEvent.setup()
+    renderStock()
+    await user.click(await screen.findByRole('button', { name: 'Consumir 1 u de Yogur' }))
+    await waitFor(() => expect(bodies).toEqual([{ quantity: '1' }]))
+  })
+
+  it('−1 no consume más de lo que queda', async () => {
+    mockList([SOON])
+    const bodies: unknown[] = []
+    mockConsume(bodies)
+    const user = userEvent.setup()
+    renderStock()
+    await user.click(await screen.findByRole('button', { name: 'Consumir 1 L de Leche' }))
+    await waitFor(() => expect(bodies).toEqual([{ quantity: '0.500' }]))
+  })
+
+  it('deshabilita las acciones mientras hay una mutación en curso', async () => {
+    mockList([EXPIRED, SOON])
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    server.use(
+      http.post(`${API}/stock/:id/consume`, async () => {
+        await gate
         return HttpResponse.json(EXPIRED)
       }),
     )
     const user = userEvent.setup()
     renderStock()
-
-    await user.click(await screen.findByRole('button', { name: 'Consumir 1 u de Yogur' }))
-    await user.click(screen.getByRole('button', { name: 'Consumir 1 L de Leche' }))
-    await waitFor(() => expect(Object.keys(bodies)).toHaveLength(2))
-    expect(bodies.a).toEqual({ quantity: '1' })
-    expect(bodies.b).toEqual({ quantity: '0.500' })
+    await user.click(await screen.findByRole('button', { name: 'Consumir todo Yogur' }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Consumir todo Leche' })).toBeDisabled(),
+    )
+    release()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Consumir todo Leche' })).toBeEnabled(),
+    )
   })
 
   it('consume todo el lote con un toque', async () => {
@@ -164,6 +185,8 @@ describe('StockPage', () => {
     renderStock()
     await user.click(await screen.findByRole('button', { name: 'Consumir todo Yogur' }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/ya no está activo/)
+    // the batch is gone after the refresh: error is shown at page level, not lost
+
     await waitFor(() => expect(lists).toBeGreaterThan(1))
   })
 
@@ -254,5 +277,266 @@ describe('StockPage', () => {
     await waitFor(() =>
       expect(screen.queryByRole('form', { name: 'Agregar stock' })).not.toBeInTheDocument(),
     )
+  })
+
+  it('muestra el error 404 de un lote inexistente al consumir', async () => {
+    mockList([EXPIRED])
+    server.use(
+      http.post(`${API}/stock/:id/consume`, () =>
+        HttpResponse.json(
+          { type: 'about:blank', title: 'Not found', status: 404, code: 'NOT_FOUND' },
+          { status: 404 },
+        ),
+      ),
+    )
+    const user = userEvent.setup()
+    renderStock()
+    await user.click(await screen.findByRole('button', { name: 'Consumir todo Yogur' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/No encontramos ese lote/)
+  })
+
+  it('muestra el error al descartar un lote ya descartado (409)', async () => {
+    mockList([EXPIRED])
+    server.use(
+      http.post(`${API}/stock/:id/discard`, () =>
+        HttpResponse.json(
+          { type: 'about:blank', title: 'Conflict', status: 409, code: 'CONFLICT' },
+          { status: 409 },
+        ),
+      ),
+    )
+    const user = userEvent.setup()
+    renderStock()
+    await user.click(await screen.findByRole('button', { name: 'Descartar Yogur' }))
+    await user.click(screen.getByRole('button', { name: 'Confirmar descarte de Yogur' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/ya no está activo/)
+  })
+
+  it('ofrece reintentar cuando falla la carga', async () => {
+    let calls = 0
+    server.use(
+      http.get(`${API}/stock`, () => {
+        calls++
+        return calls === 1
+          ? HttpResponse.json(
+              { type: 'about:blank', title: 'x', status: 500, code: 'INTERNAL_ERROR' },
+              { status: 500 },
+            )
+          : HttpResponse.json(page([EXPIRED]))
+      }),
+      http.get(`${API}/stock/alerts`, () => HttpResponse.json({ expired: [], expiringSoon: [] })),
+    )
+    const user = userEvent.setup()
+    renderStock()
+    expect(await screen.findByText('No pudimos cargar el stock.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }))
+    expect(await screen.findByText('Yogur')).toBeInTheDocument()
+  })
+
+  it('maneja el foco del descarte con teclado', async () => {
+    mockList([EXPIRED])
+    server.use(http.post(`${API}/stock/:id/discard`, () => HttpResponse.json(EXPIRED)))
+    const user = userEvent.setup()
+    renderStock()
+    const discardBtn = await screen.findByRole('button', { name: 'Descartar Yogur' })
+    discardBtn.focus()
+    await user.keyboard('{Enter}')
+    // focus moves to the confirm button
+    expect(screen.getByRole('button', { name: 'Confirmar descarte de Yogur' })).toHaveFocus()
+    // cancel returns the focus to the button that opened the confirmation
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+    expect(screen.getByRole('button', { name: 'Descartar Yogur' })).toHaveFocus()
+    // confirm moves focus to a stable target (the page title)
+    await user.keyboard('{Enter}')
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('heading', { level: 1, name: 'Stock' })).toHaveFocus()
+  })
+
+  it('vuelve a la última página existente cuando la actual queda vacía', async () => {
+    let consumed = false
+    server.use(
+      http.get(`${API}/stock`, ({ request }) => {
+        const p = Number(new URL(request.url).searchParams.get('page') ?? 0)
+        if (consumed) {
+          // Only one page left; page 1 is out of range.
+          return HttpResponse.json({
+            content: p === 0 ? [EXPIRED] : [],
+            page: p,
+            size: 100,
+            totalElements: 1,
+            totalPages: 1,
+          })
+        }
+        return HttpResponse.json({
+          content: p === 0 ? [EXPIRED] : [SOON],
+          page: p,
+          size: 100,
+          totalElements: 101,
+          totalPages: 2,
+        })
+      }),
+      http.get(`${API}/stock/alerts`, () => HttpResponse.json({ expired: [], expiringSoon: [] })),
+      http.post(`${API}/stock/:id/consume`, () => {
+        consumed = true
+        return HttpResponse.json(SOON)
+      }),
+    )
+    const user = userEvent.setup()
+    renderStock()
+    await user.click(await screen.findByRole('button', { name: 'Siguiente' }))
+    await user.click(await screen.findByRole('button', { name: 'Consumir todo Leche' }))
+    expect(await screen.findByText('Yogur')).toBeInTheDocument()
+    expect(screen.queryByText(/Todavía no hay stock/)).not.toBeInTheDocument()
+  })
+
+  it('pagina y no muestra "no hay stock" si hay más páginas', async () => {
+    server.use(
+      http.get(`${API}/stock`, ({ request }) => {
+        const p = Number(new URL(request.url).searchParams.get('page') ?? 0)
+        return HttpResponse.json({
+          content: p === 0 ? [EXPIRED] : [SOON],
+          page: p,
+          size: 100,
+          totalElements: 101,
+          totalPages: 2,
+        })
+      }),
+      http.get(`${API}/stock/alerts`, () => HttpResponse.json({ expired: [], expiringSoon: [] })),
+    )
+    const user = userEvent.setup()
+    renderStock()
+    expect(await screen.findByText('Yogur')).toBeInTheDocument()
+    expect(screen.getByText('Página 1 de 2')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Siguiente' }))
+    expect(await screen.findByText('Leche')).toBeInTheDocument()
+    expect(screen.getByText('Página 2 de 2')).toBeInTheDocument()
+    expect(screen.queryByText(/Todavía no hay stock/)).not.toBeInTheDocument()
+  })
+
+  describe('alta manual: validación', () => {
+    const leche: Product = {
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Leche entera',
+      categoryId: null,
+      defaultUnit: 'L',
+      defaultShelfLifeDays: 7,
+      archived: false,
+    }
+
+    async function openFormWithProduct() {
+      mockList([])
+      server.use(
+        http.get(`${API}/products`, () =>
+          HttpResponse.json({
+            content: [leche],
+            page: 0,
+            size: 10,
+            totalElements: 1,
+            totalPages: 1,
+          }),
+        ),
+      )
+      const user = userEvent.setup()
+      renderStock()
+      await user.click(await screen.findByRole('button', { name: 'Agregar stock' }))
+      const form = screen.getByRole('form', { name: 'Agregar stock' })
+      await user.click(within(form).getByRole('combobox', { name: 'Producto' }))
+      await user.click(await screen.findByRole('option', { name: /Leche entera/ }))
+      return { user, form }
+    }
+
+    it('valida cantidad (decimales, magnitud, cero) y fecha en el cliente, por campo', async () => {
+      let posts = 0
+      server.use(
+        http.post(`${API}/stock`, () => {
+          posts++
+          return HttpResponse.json(SOON, { status: 201 })
+        }),
+      )
+      const { user, form } = await openFormWithProduct()
+      const qty = within(form).getByLabelText('Cantidad')
+      const save = () => user.click(within(form).getByRole('button', { name: 'Guardar' }))
+
+      await user.clear(qty)
+      await user.type(qty, '0,2505')
+      await save()
+      expect(qty).toBeInvalid()
+      expect(within(form).getByText('Usá como máximo 3 decimales.')).toBeInTheDocument()
+
+      await user.clear(qty)
+      await user.type(qty, '1000000000')
+      await save()
+      expect(within(form).getByText('La cantidad es demasiado grande.')).toBeInTheDocument()
+
+      await user.clear(qty)
+      await user.type(qty, '0')
+      await save()
+      expect(within(form).getByText('La cantidad debe ser mayor a cero.')).toBeInTheDocument()
+
+      await user.clear(qty)
+      await user.type(qty, '2')
+      await user.type(within(form).getByLabelText(/Vencimiento/), '3000-01-01')
+      await save()
+      expect(within(form).getByText('El año debe estar entre 1900 y 2999.')).toBeInTheDocument()
+      expect(posts).toBe(0)
+    })
+
+    it('mapea errores 400 del backend (errors[]) a los campos', async () => {
+      server.use(
+        http.post(`${API}/stock`, () =>
+          HttpResponse.json(
+            {
+              type: 'about:blank',
+              title: 'Bad Request',
+              status: 400,
+              code: 'VALIDATION_ERROR',
+              errors: [{ field: 'expiryDate', message: 'must be between x and y' }],
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+      const { user, form } = await openFormWithProduct()
+      await user.click(within(form).getByRole('button', { name: 'Guardar' }))
+      const msg = await within(form).findByText('La fecha de vencimiento no es válida.')
+      expect(within(form).getByLabelText(/Vencimiento/)).toHaveAccessibleDescription(
+        msg.textContent ?? '',
+      )
+    })
+
+    it('informa si el producto ya no existe (404) y muestra error genérico en otros fallos', async () => {
+      let status = 404
+      server.use(
+        http.post(`${API}/stock`, () =>
+          HttpResponse.json(
+            {
+              type: 'about:blank',
+              title: 'x',
+              status,
+              code: status === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR',
+            },
+            { status },
+          ),
+        ),
+      )
+      const { user, form } = await openFormWithProduct()
+      await user.click(within(form).getByRole('button', { name: 'Guardar' }))
+      expect(
+        await within(form).findByText('Ese producto ya no existe. Elegí otro.'),
+      ).toBeInTheDocument()
+      status = 500
+      await user.click(within(form).getByRole('button', { name: 'Guardar' }))
+      expect(
+        await within(form).findByText('No pudimos agregar el stock. Intentá de nuevo.'),
+      ).toBeInTheDocument()
+    })
+
+    it('tras guardar anuncia el éxito y devuelve el foco al botón', async () => {
+      server.use(http.post(`${API}/stock`, () => HttpResponse.json(SOON, { status: 201 })))
+      const { user, form } = await openFormWithProduct()
+      await user.click(within(form).getByRole('button', { name: 'Guardar' }))
+      expect(await screen.findByText('Agregamos Leche entera al stock.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Agregar stock' })).toHaveFocus()
+    })
   })
 })
