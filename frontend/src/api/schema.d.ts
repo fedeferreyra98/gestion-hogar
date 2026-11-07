@@ -281,14 +281,14 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/shopping-lists/suggestions': {
+  '/shopping-lists/{id}/suggestions': {
     parameters: {
       query?: never
       header?: never
       path?: never
       cookie?: never
     }
-    /** Sugerencias de compra (UC-12) */
+    /** Sugerencias de compra para una lista (UC-12) */
     get: operations['getShoppingSuggestions']
     put?: never
     post?: never
@@ -1675,12 +1675,14 @@ export interface operations {
     parameters: {
       query?: never
       header?: never
-      path?: never
+      path: {
+        id: components['parameters']['IdPath']
+      }
       cookie?: never
     }
     requestBody?: never
     responses: {
-      /** @description Sugerencias */
+      /** @description Sugerencias (máx. 50), excluye los productos ya listados */
       200: {
         headers: {
           [name: string]: unknown
@@ -1690,6 +1692,7 @@ export interface operations {
         }
       }
       401: components['responses']['Unauthorized']
+      404: components['responses']['NotFound']
     }
   }
   getShoppingList: {

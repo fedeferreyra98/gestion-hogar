@@ -56,7 +56,7 @@ Fase: **P1** = MVP, **P2** = gastos compartidos, **P3** = extras.
 
 ### UC-12 Sugerir ítems faltantes (P1)
 - Al crear/editar una lista, el sistema sugiere: (a) productos con stock bajo/agotado (stock = 0 y comprados antes), (b) productos con stock vencido o por vencer en ≤ 3 días.
-- **Aceptación**: `GET /shopping-lists/suggestions` devuelve productos con motivo (`OUT_OF_STOCK`, `EXPIRING`, `EXPIRED`). Agregar la sugerencia a la lista es una acción explícita del usuario.
+- **Aceptación**: `GET /shopping-lists/{id}/suggestions` devuelve productos con motivo (`OUT_OF_STOCK`, `EXPIRING`, `EXPIRED`). Agregar la sugerencia a la lista es una acción explícita del usuario.
 
 ### UC-13 Completar lista → registrar compra (P1) — caso de uso central
 - Desde una lista `OPEN`, "Finalizar compra": el usuario confirma por cada ítem tildado cantidad real y precio real (precargados con los estimados), indica comercio, fecha y total (por defecto suma de ítems), y quién pagó.
