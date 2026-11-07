@@ -93,7 +93,7 @@ Migración V6 (`purchase`, `purchase_item`). `PurchaseService.completeList` tran
 CA: test de integración del flujo completo (lista → compra → gasto + stock + lista COMPLETED); rollback total si falla el alta de stock (test forzando error); reintento → `LIST_NOT_OPEN`; `leftoverAction=NEW_LIST` crea lista con los no tildados; vencimiento por `defaultShelfLifeDays`; editar compra recalcula el gasto.
 Supuestos (BL-108): ver "Cambios de contrato" de `04-api-interfaces.md`. Resumen: lock pesimista de la lista (concurrencia → `LIST_NOT_OPEN`); pendientes = ítems sin tildar no comprados (sin pendientes no se crea lista nueva); editar una compra reemplaza ítems y recalcula el gasto pero no toca el stock ya creado (queda desvinculado, `ON DELETE SET NULL`); no hay reparto de gasto (Fase 2), por eso no se usa `Allocator` en esta tarea; `Purchase` no expone el id de la lista nueva.
 
-**BL-109 · Sugerencias de lista [M] · BL-106, BL-108** · `TODO`
+**BL-109 · Sugerencias de lista [M] · BL-106, BL-108** · `DONE`
 UC-12, DM §Sugerencias.
 CA: tests con datos: producto sin stock tras compra previa, producto por vencer, exclusión de ya listados.
 
