@@ -5,6 +5,7 @@ import { CatalogPage } from '@/pages/CatalogPage'
 import { ExpensesPage } from '@/pages/ExpensesPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { RegisterPage } from '@/pages/RegisterPage'
+import { CompleteListPage } from '@/pages/CompleteListPage'
 import { ShoppingListDetailPage } from '@/pages/ShoppingListDetailPage'
 import { ShoppingListsPage } from '@/pages/ShoppingListsPage'
 import { StockPage } from '@/pages/StockPage'
@@ -19,6 +20,7 @@ export function AppRoutes() {
           <Route index element={<Navigate to="/listas" replace />} />
           <Route path="listas" element={<ShoppingListsPage />} />
           <Route path="listas/:id" element={<ShoppingListDetailPage />} />
+          <Route path="listas/:id/finalizar" element={<CompleteListPage />} />
           <Route path="gastos/*" element={<ExpensesPage />} />
           <Route path="stock" element={<StockPage />} />
           <Route path="catalogo" element={<CatalogPage />} />

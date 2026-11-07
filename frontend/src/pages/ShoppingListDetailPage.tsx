@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { isProblemError } from '@/api/errors'
 import {
   useAddShoppingListItem,
@@ -11,6 +11,8 @@ import type { Product, Unit } from '@/api/types'
 import { ProductPicker } from '@/catalog'
 import { UNITS, UNIT_LABELS } from '@/catalog/units'
 import { Button } from '@/components/ui/button'
+import { formatMinor } from '@/lib/money'
+import type { PurchaseCompletedState } from '@/shopping/complete/CompleteListWizard'
 import { ArchiveAction } from '@/shopping/ArchiveAction'
 import { parseQuantity } from '@/shopping/quantity'
 import { ShoppingItemRow } from '@/shopping/ShoppingItemRow'
@@ -26,6 +28,8 @@ const PICKER_ID = 'item-product'
 
 function ShoppingListDetail({ id }: { id: string }) {
   const navigate = useNavigate()
+  const completed = (useLocation().state as Partial<PurchaseCompletedState> | null)
+    ?.purchaseCompleted
   const { data: list, isLoading, isError, error: loadError, refetch } = useShoppingList(id)
 
   const addItem = useAddShoppingListItem(id)
@@ -142,6 +146,16 @@ function ShoppingListDetail({ id }: { id: string }) {
         >
           Duplicar lista
         </Button>
+        {isOpen &&
+          (checkedCount === 0 ? (
+            <Button type="button" size="sm" disabled aria-describedby="finish-hint">
+              Finalizar compra
+            </Button>
+          ) : (
+            <Button asChild size="sm">
+              <Link to={`/listas/${list.id}/finalizar`}>Finalizar compra</Link>
+            </Button>
+          ))}
         {isOpen && (
           <ArchiveAction
             label="Archivar lista"
@@ -151,6 +165,31 @@ function ShoppingListDetail({ id }: { id: string }) {
           />
         )}
       </div>
+
+      {isOpen && checkedCount === 0 && (
+        <p id="finish-hint" className="text-xs text-muted-foreground">
+          Tildá los ítems que compraste para poder finalizar la compra.
+        </p>
+      )}
+
+      {completed && (
+        <p role="status" className="rounded-md border border-border bg-accent p-3 text-sm">
+          Compra registrada por {completed.currency}{' '}
+          {formatMinor(completed.amountMinor, completed.currency)}.
+          {completed.leftoverListCreated && ' Los ítems pendientes quedaron en una lista nueva. '}
+          <Link to="/gastos" className="underline">
+            Ver gastos
+          </Link>
+          {completed.leftoverListCreated && (
+            <>
+              {' · '}
+              <Link to="/listas" className="underline">
+                Ver listas
+              </Link>
+            </>
+          )}
+        </p>
+      )}
 
       {isOpen ? (
         <form

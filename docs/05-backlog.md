@@ -129,9 +129,10 @@ Listado de listas, detalle con alta rápida de ítems, tildado, contador, duplic
 CA: usable en 375 px; tildar actualiza en < 100 ms percibidos; tests de interacción.
 Supuestos: rutas `/listas` y `/listas/:id`; archivar con `window.confirm`; cantidad por defecto 1 (decimal hasta 3 decimales, acepta coma); sin precio estimado/nota en el alta rápida; el tildado revierte solo el ítem afectado ante error.
 
-**BL-154 · Finalizar compra UI [L] · BL-153, BL-108** · `TODO`
+**BL-154 · Finalizar compra UI [L] · BL-153, BL-108** · `DONE`
 Wizard UC-13: revisar ítems tildados (cantidad/precio/vencimiento), comercio/fecha/pagador/total, qué hacer con no tildados. Manejo de errores `LIST_NOT_OPEN`.
 CA: total por defecto = suma; validaciones Zod; flujo completo con MSW; `lib/money.ts` con tests (parseo "1.500,50" ↔ minor units).
+Supuestos (BL-154): ruta `/listas/:id/finalizar` (botón "Finalizar compra" en el detalle de una lista `OPEN` con al menos un ítem tildado). Wizard de 3 pasos en un solo formulario: ítems tildados (cantidad, precio unitario precargado con el estimado si está en la moneda base, vencimiento opcional) → comercio/fecha/pagador (solo miembros activos)/total → pendientes (`NEW_LIST` por defecto, `DISCARD`). Total por defecto = suma de `round(cantidad × precio)` por línea con BigInt (`lineTotalMinor` en `lib/money.ts`, half-up como el backend); editable, con "Usar la suma" para volver. Validación con Zod (se agrega la dependencia `zod`). `LIST_NOT_OPEN` reemplaza el wizard por un aviso con enlaces a la lista y a gastos; un reintento tras un fallo reenvía el mismo contenido (el backend responde `LIST_NOT_OPEN` si el primero sí se registró). Al éxito se invalidan listas, gastos y stock y se navega al detalle de la lista (ya `COMPLETED`) con un aviso de éxito vía `location.state`. `shared` no se envía (default del hogar).
 
 **BL-155 · Gastos UI [M] · BL-151, BL-107** · `DONE`
 Histórico con filtros y total filtrado, alta/edición manual, detalle de compra.
