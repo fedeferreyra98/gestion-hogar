@@ -23,6 +23,7 @@ import java.util.UUID
 
 private const val MAX_NAME = 160
 private const val COPY_SUFFIX = " (copia)"
+private const val LEFTOVER_SUFFIX = " (pendientes)"
 
 /** UC-10, UC-11, UC-15: listas de compra. Solo una lista `OPEN` admite cambios. */
 @Service
@@ -74,7 +75,7 @@ class ShoppingService(
         id: UUID,
         req: UpdateShoppingListRequest,
     ): ShoppingListDto {
-        val list = list(householdId, id)
+        val list = lockedList(householdId, id)
         if (req.name == null && req.status == null) return list.toDto(items.findByList(id))
         if (req.status != null && req.status != ShoppingListStatus.ARCHIVED) {
             throw ValidationException("Invalid status", listOf(FieldError("status", "must be ARCHIVED")))
@@ -122,7 +123,7 @@ class ShoppingService(
         id: UUID,
         req: ShoppingListItemInput,
     ): ShoppingListItemDto {
-        val list = list(householdId, id)
+        val list = lockedList(householdId, id)
         requireOpen(list)
         val product = product(householdId, req.productId!!)
         val price = req.estimatedPrice?.let { validPrice(householdId, it) }
@@ -153,7 +154,7 @@ class ShoppingService(
         itemId: UUID,
         req: UpdateShoppingListItemRequest,
     ): ShoppingListItemDto {
-        val list = list(householdId, id)
+        val list = lockedList(householdId, id)
         requireOpen(list)
         val item = item(id, itemId)
         val now = clock.instant()
@@ -181,8 +182,76 @@ class ShoppingService(
         id: UUID,
         itemId: UUID,
     ) {
-        requireOpen(list(householdId, id))
+        requireOpen(lockedList(householdId, id))
         items.delete(item(id, itemId))
+    }
+
+    // ---- operaciones internas para la compra (UC-13, BL-108); sin endpoint propio ----
+
+    /** Lista bloqueada para completarla: 404 si no es del hogar, 422 `LIST_NOT_OPEN` si ya no está abierta. */
+    @Transactional
+    fun lockOpenList(
+        householdId: UUID,
+        id: UUID,
+    ): ShoppingList {
+        val list =
+            lists.findWithLockByIdAndHouseholdId(id, householdId)
+                ?: throw NotFoundException("Shopping list not found")
+        requireOpen(list)
+        return list
+    }
+
+    @Transactional(readOnly = true)
+    fun itemsOf(listId: UUID): List<ShoppingListItem> = items.findByList(listId)
+
+    @Transactional(readOnly = true)
+    fun nameOf(
+        householdId: UUID,
+        id: UUID,
+    ): String? =
+        lists
+            .findById(id)
+            .orElse(null)
+            ?.takeIf { it.householdId == householdId }
+            ?.name
+
+    @Transactional
+    fun markCompleted(list: ShoppingList) {
+        val now = clock.instant()
+        list.status = ShoppingListStatus.COMPLETED
+        list.completedAt = now
+        list.updatedAt = now
+        lists.saveAndFlush(list)
+    }
+
+    /** Lista nueva `OPEN` con los ítems pendientes de [source] (misma cantidad, unidad, precio estimado y nota). */
+    @Transactional
+    fun createLeftoverList(
+        householdId: UUID,
+        memberId: UUID,
+        source: ShoppingList,
+        pending: List<ShoppingListItem>,
+    ): ShoppingList {
+        val name = source.name.take(MAX_NAME - LEFTOVER_SUFFIX.length).trimEnd() + LEFTOVER_SUFFIX
+        val copy = newList(householdId, memberId, name)
+        val now = clock.instant()
+        items.saveAll(
+            pending.map {
+                ShoppingListItem(
+                    id = UUID.randomUUID(),
+                    listId = copy.id,
+                    productId = it.productId,
+                    quantity = it.quantity,
+                    unit = it.unit,
+                    estimatedPriceMinor = it.estimatedPriceMinor,
+                    estimatedPriceCurrency = it.estimatedPriceCurrency,
+                    note = it.note,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            },
+        )
+        return copy
     }
 
     // ---- helpers ----
@@ -210,6 +279,15 @@ class ShoppingService(
         id: UUID,
     ) = lists.findById(id).orElse(null)?.takeIf { it.householdId == householdId }
         ?: throw NotFoundException("Shopping list not found")
+
+    /**
+     * Lista bloqueada (`FOR UPDATE`) para toda mutación: serializa contra "completar" y evita pisar el estado
+     * (p. ej. archivar una lista recién completada o agregar un ítem a una lista `COMPLETED`).
+     */
+    private fun lockedList(
+        householdId: UUID,
+        id: UUID,
+    ) = lists.findWithLockByIdAndHouseholdId(id, householdId) ?: throw NotFoundException("Shopping list not found")
 
     private fun item(
         listId: UUID,

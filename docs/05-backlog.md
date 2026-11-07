@@ -88,9 +88,10 @@ Supuestos (BL-106): ver "Cambios de contrato" en `04` (unidades sin conversión,
 CA: tests de filtros combinados; índices presentes; moneda distinta a la base → 422 `UNSUPPORTED_CURRENCY`.
 Supuestos: sin tabla `expense_split` (Fase 2); `shared`/`split_mode` son columnas y la API siempre devuelve `shared=false`; `PUT/DELETE` de un gasto `PURCHASE` → 409 `CONFLICT`; la moneda base sale del hogar (`CurrencyPolicy` por request); `GET /expenses/summary` queda para BL-110.
 
-**BL-108 · Compras + completar lista (UC-13/14/22) [L] · BL-105, BL-106, BL-107** · `TODO`
+**BL-108 · Compras + completar lista (UC-13/14/22) [L] · BL-105, BL-106, BL-107** · `DONE`
 Migración V6 (`purchase`, `purchase_item`). `PurchaseService.completeList` transaccional según DM §Completar lista y ADR-007. `POST /purchases`, `GET/PUT /purchases`.
 CA: test de integración del flujo completo (lista → compra → gasto + stock + lista COMPLETED); rollback total si falla el alta de stock (test forzando error); reintento → `LIST_NOT_OPEN`; `leftoverAction=NEW_LIST` crea lista con los no tildados; vencimiento por `defaultShelfLifeDays`; editar compra recalcula el gasto.
+Supuestos (BL-108): ver "Cambios de contrato" de `04-api-interfaces.md`. Resumen: lock pesimista de la lista (concurrencia → `LIST_NOT_OPEN`); pendientes = ítems sin tildar no comprados (sin pendientes no se crea lista nueva); editar una compra reemplaza ítems y recalcula el gasto pero no toca el stock ya creado (queda desvinculado, `ON DELETE SET NULL`); no hay reparto de gasto (Fase 2), por eso no se usa `Allocator` en esta tarea; `Purchase` no expone el id de la lista nueva.
 
 **BL-109 · Sugerencias de lista [M] · BL-106, BL-108** · `TODO`
 UC-12, DM §Sugerencias.
@@ -123,9 +124,10 @@ ABM de categorías y productos; componente `ProductPicker` (autocompletado con c
 CA: búsqueda con debounce; test del picker.
 Supuestos (BL-152): la pantalla del catálogo vive en `/catalogo` y se expone en la navegación principal; `ProductPicker` usa debounce de 300 ms por defecto y permite elegir la unidad al crear un producto al vuelo cuando no hay coincidencia exacta por nombre.
 
-**BL-153 · Listas de compra UI [L] · BL-152, BL-105** · `TODO`
+**BL-153 · Listas de compra UI [L] · BL-152, BL-105** · `DONE`
 Listado de listas, detalle con alta rápida de ítems, tildado, contador, duplicar/archivar. Optimistic updates en tildado.
 CA: usable en 375 px; tildar actualiza en < 100 ms percibidos; tests de interacción.
+Supuestos: rutas `/listas` y `/listas/:id`; archivar con `window.confirm`; cantidad por defecto 1 (decimal hasta 3 decimales, acepta coma); sin precio estimado/nota en el alta rápida; el tildado revierte solo el ítem afectado ante error.
 
 **BL-154 · Finalizar compra UI [L] · BL-153, BL-108** · `TODO`
 Wizard UC-13: revisar ítems tildados (cantidad/precio/vencimiento), comercio/fecha/pagador/total, qué hacer con no tildados. Manejo de errores `LIST_NOT_OPEN`.
@@ -136,7 +138,7 @@ Histórico con filtros y total filtrado, alta/edición manual, detalle de compra
 CA: paginación infinita o por páginas; filtros reflejados en la URL.
 Supuestos (BL-155): `/gastos` (histórico, paginación por páginas de 20), `/gastos/nuevo` y `/gastos/:id` (edición si `MANUAL`; solo lectura si `PURCHASE`). Filtros (`from`, `to`, `categoryId`, `paidBy`, `source`, `q`) y `page` (1-based) viven en la URL. La moneda del alta es la base del hogar; `lib/money.ts` asume 2 decimales salvo JPY/CLP/PYG/KRW/VND. El pagador se resuelve con `GET /members`.
 
-**BL-156 · Stock UI [M] · BL-151, BL-106** · `TODO`
+**BL-156 · Stock UI [M] · BL-151, BL-106** · `DONE`
 Listado agrupado por vencimiento con badges de estado, alta manual, consumir (rápido: botones −1/todo), descartar, banner de alertas.
 CA: colores accesibles (no solo color); consumo desde la lista en ≤ 2 toques.
 

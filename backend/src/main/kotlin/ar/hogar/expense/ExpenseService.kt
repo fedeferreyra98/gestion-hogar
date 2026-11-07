@@ -140,6 +140,56 @@ class ExpenseService(
         expense.updatedAt = now
     }
 
+    /** Gasto `PURCHASE` generado por una compra (BL-108); la validación de moneda y pagador la hace la compra. */
+    @Transactional
+    fun createFromPurchase(
+        householdId: UUID,
+        createdBy: UUID,
+        description: String,
+        amount: Money,
+        date: LocalDate,
+        paidBy: UUID,
+    ): UUID {
+        val now = clock.instant()
+        return expenses
+            .saveAndFlush(
+                Expense(
+                    id = UUID.randomUUID(),
+                    householdId = householdId,
+                    description = description,
+                    amountMinor = amount.amountMinor,
+                    currency = amount.currency.currencyCode,
+                    expenseDate = date,
+                    categoryId = null,
+                    paidBy = paidBy,
+                    source = ExpenseSource.PURCHASE,
+                    createdBy = createdBy,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            ).id
+    }
+
+    /** Recalcula el gasto de una compra editada (BL-108). */
+    @Transactional
+    fun updateFromPurchase(
+        householdId: UUID,
+        id: UUID,
+        description: String,
+        amount: Money,
+        date: LocalDate,
+        paidBy: UUID,
+    ) {
+        val expense = expense(householdId, id)
+        expense.description = description
+        expense.amountMinor = amount.amountMinor
+        expense.currency = amount.currency.currencyCode
+        expense.expenseDate = date
+        expense.paidBy = paidBy
+        expense.updatedAt = clock.instant()
+        expenses.saveAndFlush(expense)
+    }
+
     /** Valida el input y devuelve el monto; moneda distinta a la base del hogar → 422 `UNSUPPORTED_CURRENCY`. */
     private fun validated(
         householdId: UUID,

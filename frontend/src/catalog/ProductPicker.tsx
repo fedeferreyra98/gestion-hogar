@@ -9,6 +9,8 @@ import { useDebouncedValue } from '@/lib/useDebouncedValue'
 export interface ProductPickerProps {
   value?: Product | null
   onSelect: (product: Product) => void
+  /** Called when the user edits the text (the selection, if any, no longer matches it). */
+  onQueryChange?: (query: string) => void
   defaultUnit?: Unit
   categoryId?: string | null
   label?: string
@@ -23,6 +25,7 @@ const CREATE_OPTION = 'create'
 export function ProductPicker({
   value,
   onSelect,
+  onQueryChange,
   defaultUnit = 'UNIT',
   categoryId = null,
   label = 'Producto',
@@ -201,6 +204,7 @@ export function ProductPicker({
         onChange={(e) => {
           setError(null)
           setQuery(e.target.value)
+          onQueryChange?.(e.target.value)
           setActiveKey(null)
           setOpen(true)
         }}

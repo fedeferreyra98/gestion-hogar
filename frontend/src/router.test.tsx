@@ -19,6 +19,13 @@ function renderAt(path: string) {
 }
 
 describe('app shell', () => {
+  beforeEach(() => {
+    server.use(
+      http.get('*/shopping-lists', () =>
+        HttpResponse.json({ content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 }),
+      ),
+    )
+  })
   afterEach(() => resetSession())
 
   it('redirects / to Listas', async () => {
