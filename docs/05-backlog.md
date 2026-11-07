@@ -123,9 +123,10 @@ ABM de categorías y productos; componente `ProductPicker` (autocompletado con c
 CA: búsqueda con debounce; test del picker.
 Supuestos (BL-152): la pantalla del catálogo vive en `/catalogo` y se expone en la navegación principal; `ProductPicker` usa debounce de 300 ms por defecto y permite elegir la unidad al crear un producto al vuelo cuando no hay coincidencia exacta por nombre.
 
-**BL-153 · Listas de compra UI [L] · BL-152, BL-105** · `TODO`
+**BL-153 · Listas de compra UI [L] · BL-152, BL-105** · `DONE`
 Listado de listas, detalle con alta rápida de ítems, tildado, contador, duplicar/archivar. Optimistic updates en tildado.
 CA: usable en 375 px; tildar actualiza en < 100 ms percibidos; tests de interacción.
+Supuestos: rutas `/listas` y `/listas/:id`; archivar con `window.confirm`; cantidad por defecto 1 (decimal hasta 3 decimales, acepta coma); sin precio estimado/nota en el alta rápida; el tildado revierte solo el ítem afectado ante error.
 
 **BL-154 · Finalizar compra UI [L] · BL-153, BL-108** · `TODO`
 Wizard UC-13: revisar ítems tildados (cantidad/precio/vencimiento), comercio/fecha/pagador/total, qué hacer con no tildados. Manejo de errores `LIST_NOT_OPEN`.
