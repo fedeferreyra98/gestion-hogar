@@ -33,4 +33,4 @@ export type Category = Schemas['Category']
 export type CategoryInput = Schemas['CategoryInput']
 export type Product = Schemas['Product']
 export type ProductInput = Schemas['ProductInput']
-export type ProductPage = Schemas['ProductPage']
+export type ProductPage = Omit<Schemas['ProductPage'], 'content'> & { content: Product[] }

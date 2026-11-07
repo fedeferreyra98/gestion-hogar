@@ -1,5 +1,6 @@
 export * from './client.ts'
 export * from './errors.ts'
+export * from './hooks/useCatalog.ts'
 export * from './hooks/useMe.ts'
 export * from './token.ts'
 export * from './types.ts'
