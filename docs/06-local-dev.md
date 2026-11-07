@@ -43,7 +43,7 @@ Reglas para agentes:
 | Smoke test E2E incremental | `scripts/smoke.sh` | Hecho (se activa por secciones) |
 | Seed del owner dev | `scripts/seed.sh` | Hecho |
 | Perfil Spring `local` (`application-local.yml`) y `test` | `backend/` | Hecho |
-| Datos demo de catálogo (idempotente) | `backend/` | BL-111 |
+| Datos demo de catálogo (idempotente, paquete `devseed`) | `backend/` | Hecho (BL-111) |
 | Tests de integración con Testcontainers reutilizables (`IntegrationTestBase`) | `backend/` | Hecho (BL-012) |
 | Proxy de Vite al backend / CORS local | `frontend/` | BL-005 |
 | Servicios `backend`+`frontend` en compose (profile `full`) | `docker-compose.yml` | BL-160 |
@@ -62,6 +62,14 @@ Tests de integración:
 - Un único contenedor Postgres compartido por toda la suite (singleton container) y `testcontainers.reuse.enable=true` en `~/.testcontainers.properties` para reutilizarlo entre corridas.
 - Cada test que escribe datos limpia sus tablas (`@Sql` o `TRUNCATE ... CASCADE` en `@BeforeEach`) en vez de recrear el contexto.
 - `Clock` inyectable para tests de vencimientos (ya requerido en BL-106).
+
+## Seed del catálogo (perfil `local`)
+
+Con el perfil `local` el backend carga datos mock de catálogo: 7 categorías (Almacén, Lácteos, Limpieza, Verdura, Carne, Bebidas, Higiene) y ~30 productos con unidad por defecto y vida útil típica (`defaultShelfLifeDays`). Código en `backend/src/main/kotlin/ar/hogar/devseed/`.
+
+- **Cuándo se carga:** el hogar existe recién tras `register-owner` (p. ej. `make seed`). Se carga (a) apenas se confirma ese registro (evento `HouseholdRegisteredEvent`, tras el commit) y (b) en cada arranque de `local` si el hogar ya existe (`ApplicationRunner`).
+- **Idempotente:** salta categorías/productos cuyo nombre ya exista (case-insensitive, igual que el 409 de la API) y nunca modifica datos existentes. Arrancar N veces los carga una sola vez; si borrás un producto del seed, reaparece en el próximo arranque.
+- **Solo `local`:** los beans llevan `@Profile("local")`; no existen en `test` ni en prod. Un fallo del seed tras el registro se loguea y no afecta al registro.
 
 ## Harness de validación para agentes
 

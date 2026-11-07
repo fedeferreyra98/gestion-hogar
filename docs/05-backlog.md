@@ -101,7 +101,7 @@ CA: tests con datos: producto sin stock tras compra previa, producto por vencer,
 `GET /expenses/summary` (mes/categoría/comercio), `GET /products/{id}/price-history`. UC-23.
 CA: tests de agregación con varios meses y categorías; montos por moneda.
 
-**BL-111 · Seed de datos de desarrollo [S] · BL-108** · `TODO`
+**BL-111 · Seed de datos de desarrollo [S] · BL-108** · `DONE`
 Perfil `local` carga categorías comunes (Almacén, Lácteos, Limpieza, Verdura, Carne, Bebidas, Higiene) y ~30 productos con vida útil típica.
 CA: arranque con perfil `local` los carga una sola vez (idempotente).
 
