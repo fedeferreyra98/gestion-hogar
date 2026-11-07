@@ -17,15 +17,18 @@ function CompleteList({ id }: { id: string }) {
   const me = useMe()
   const members = useMembers()
 
-  if (list.isLoading || me.isLoading || members.isLoading)
+  // Solo se bloquea si falta un dato: un refetch fallido conserva `data` y no debe desmontar el
+  // wizard (se perdería todo lo cargado).
+  const failed = [list, me, members].some((q) => q.isError && !q.data)
+  if (!failed && (!list.data || !me.data || !members.data))
     return (
       <p role="status" className="text-sm text-muted-foreground">
         Cargando…
       </p>
     )
 
-  const notFound = isProblemError(list.error) && list.error.status === 404
-  if (list.isError || me.isError || members.isError || !list.data || !me.data || !members.data)
+  const notFound = isProblemError(list.error) && list.error.status === 404 && !list.data
+  if (failed || !list.data || !me.data || !members.data)
     return (
       <section className="flex flex-col gap-3">
         <p role="alert" className="text-sm text-red-600">
@@ -70,13 +73,32 @@ function CompleteList({ id }: { id: string }) {
       </section>
     )
 
+  const refreshFailed = list.isError || me.isError || members.isError
   return (
-    <CompleteListWizard
-      list={list.data}
-      currency={me.data.household.baseCurrency}
-      timeZone={me.data.household.timezone}
-      members={members.data}
-      defaultPaidBy={me.data.member.id}
-    />
+    <>
+      {refreshFailed && (
+        <p role="status" className="mb-3 text-sm text-red-600">
+          No pudimos actualizar los datos de la lista; podés seguir con lo que ya cargaste.{' '}
+          <button
+            type="button"
+            className="underline"
+            onClick={() => {
+              void list.refetch()
+              void me.refetch()
+              void members.refetch()
+            }}
+          >
+            Reintentar
+          </button>
+        </p>
+      )}
+      <CompleteListWizard
+        list={list.data}
+        currency={me.data.household.baseCurrency}
+        timeZone={me.data.household.timezone}
+        members={members.data}
+        defaultPaidBy={me.data.member.id}
+      />
+    </>
   )
 }

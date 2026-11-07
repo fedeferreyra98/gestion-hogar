@@ -161,6 +161,11 @@ export function useCompleteShoppingList(id: string, client?: Client<paths>) {
   return useMutation<Purchase, ProblemError, CompleteListRequest>({
     mutationKey: completeListMutationKey(id),
     mutationFn: (input) => completeShoppingList(id, input, client),
+    // El detalle en cache deja de ser OPEN ya: evita mostrarlo obsoleto hasta que vuelva el refetch.
+    onSuccess: () =>
+      queryClient.setQueryData<ShoppingList>(shoppingListQueryKey(id), (list) =>
+        list ? { ...list, status: 'COMPLETED' } : list,
+      ),
     onSettled: () => {
       for (const queryKey of [shoppingListsRootQueryKey, expensesRootQueryKey, stockRootQueryKey])
         void queryClient.invalidateQueries({ queryKey })

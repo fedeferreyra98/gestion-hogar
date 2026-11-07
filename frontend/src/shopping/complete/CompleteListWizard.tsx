@@ -110,6 +110,8 @@ export function CompleteListWizard(props: Props) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   const alertRef = useRef<HTMLDivElement>(null)
   const mounted = useRef(false)
+  // Guard síncrono (el `isPending` de la mutación llega con un render de retraso).
+  const submitting = useRef(false)
 
   const unchecked = list.items.filter((i) => !i.checked)
   const sum = sumLinesMinor(values.items, currency)
@@ -125,7 +127,8 @@ export function CompleteListWizard(props: Props) {
     if (focusTarget) document.getElementById(focusTarget.id)?.focus()
   }, [focusTarget])
   useEffect(() => {
-    if (problem?.message) alertRef.current?.focus()
+    // Con errores por campo el foco va al campo; sin ellos, al aviso general.
+    if (problem?.message && Object.keys(problem.fields).length === 0) alertRef.current?.focus()
   }, [problem])
 
   function setItem(index: number, patch: Partial<ItemValues>, key: string) {
@@ -161,7 +164,7 @@ export function CompleteListWizard(props: Props) {
   }
 
   function submit() {
-    if (busy) return
+    if (busy || submitting.current) return
     const request = buildRequest(values, currency, totalText)
     if (!request) {
       const all = {
@@ -174,6 +177,7 @@ export function CompleteListWizard(props: Props) {
       return
     }
     setProblem(null)
+    submitting.current = true
     complete.mutate(request, {
       onSuccess: (purchase) => {
         const state: PurchaseCompletedState = {
@@ -186,6 +190,7 @@ export function CompleteListWizard(props: Props) {
         void navigate(`/listas/${list.id}`, { replace: true, state })
       },
       onError: (error) => {
+        submitting.current = false
         const mapped = mapCompleteProblem(
           error,
           'No pudimos registrar la compra. Intentá de nuevo.',

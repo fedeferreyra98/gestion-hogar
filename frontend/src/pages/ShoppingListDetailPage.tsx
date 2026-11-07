@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { isProblemError } from '@/api/errors'
 import {
@@ -28,8 +28,15 @@ const PICKER_ID = 'item-product'
 
 function ShoppingListDetail({ id }: { id: string }) {
   const navigate = useNavigate()
-  const completed = (useLocation().state as Partial<PurchaseCompletedState> | null)
-    ?.purchaseCompleted
+  const location = useLocation()
+  const [completed] = useState(
+    () => (location.state as Partial<PurchaseCompletedState> | null)?.purchaseCompleted,
+  )
+  // El aviso se muestra una vez: se limpia el state del history para que no reaparezca al recargar.
+  useEffect(() => {
+    if (completed) void navigate(location.pathname, { replace: true, state: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const { data: list, isLoading, isError, error: loadError, refetch } = useShoppingList(id)
 
   const addItem = useAddShoppingListItem(id)

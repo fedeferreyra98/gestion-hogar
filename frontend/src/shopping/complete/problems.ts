@@ -11,6 +11,9 @@ export interface CompleteProblem {
   notFound: boolean
 }
 
+const CHANGED_MESSAGE =
+  'La lista cambió o algún ítem ya no es válido. Volvé a la lista y reintentá.'
+
 const ITEM_MESSAGES: Record<string, string> = {
   quantity: 'La cantidad no es válida (mayor a cero, hasta 3 decimales).',
   unitPrice: 'El precio no es válido.',
@@ -28,7 +31,9 @@ const TOP_MESSAGES: Record<string, string> = {
 /** `items[2].unitPrice.amountMinor` | `items.2.unitPrice` → `items.2.unitPrice`; otro → raíz. */
 export function normalizeServerField(field: string): string | null {
   const item = /^items(?:\[(\d+)\]|\.(\d+))\.(\w+)/.exec(field)
-  if (item) return `items.${item[1] ?? item[2]}.${item[3]}`
+  // Solo los subcampos que el wizard muestra; productId/listItemId/unit → mensaje general.
+  if (item)
+    return (item[3] ?? '') in ITEM_MESSAGES ? `items.${item[1] ?? item[2]}.${item[3]}` : null
   const root = field.split('.')[0] ?? ''
   return root in TOP_MESSAGES ? root : null
 }
@@ -48,9 +53,11 @@ function messageFor(key: string, field: string): string {
 /** Traduce un error de `POST /shopping-lists/{id}/complete` a mensajes en español por campo. */
 export function mapCompleteProblem(error: ProblemError, fallback: string): CompleteProblem {
   const fields: FieldErrors = {}
+  let unmapped = false
   for (const item of error.errors) {
     const key = item.field ? normalizeServerField(item.field) : null
-    if (key && item.field && !fields[key]) fields[key] = messageFor(key, item.field)
+    if (!key || !item.field) unmapped = true
+    else if (!fields[key]) fields[key] = messageFor(key, item.field)
   }
   const base = { fields, listNotOpen: false, notFound: false }
 
@@ -59,7 +66,7 @@ export function mapCompleteProblem(error: ProblemError, fallback: string): Compl
       ...base,
       listNotOpen: true,
       message:
-        'Esta lista ya fue completada o archivada, así que no se puede registrar la compra de nuevo.',
+        'Esta lista ya fue completada o archivada, así que no se puede registrar la compra de nuevo. Es posible que la compra ya se haya registrado: revisá los gastos.',
     }
   if (error.status === 404)
     return {
@@ -76,7 +83,11 @@ export function mapCompleteProblem(error: ProblemError, fallback: string): Compl
   if (error.status === 400)
     return {
       ...base,
-      message: Object.keys(fields).length > 0 ? '' : 'Revisá los datos de la compra.',
+      message: unmapped
+        ? CHANGED_MESSAGE
+        : Object.keys(fields).length > 0
+          ? ''
+          : 'Revisá los datos de la compra.',
     }
   if (error.status === 409)
     return {

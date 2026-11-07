@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { http, HttpResponse } from 'msw'
-import { MemoryRouter } from 'react-router-dom'
+import { http, HttpResponse, delay } from 'msw'
+import type { ReactNode } from 'react'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { AppRoutes } from '@/AppRoutes'
 import { resetApiClient } from '@/api/client'
 import type { Member, Me, ProblemCode, ShoppingList } from '@/api/types'
@@ -79,7 +80,11 @@ function problem(status: number, code: string, errors?: { field: string; message
   return { type: 'about:blank', title: code, status, code, detail: code, errors }
 }
 
-function renderAt(path: string) {
+function LocationState() {
+  return <div data-testid="loc-state">{JSON.stringify(useLocation().state)}</div>
+}
+
+function renderAt(path: string | { pathname: string; state: unknown }, extra?: ReactNode) {
   applyTokens({ accessToken: 'mock', refreshToken: 'mock', expiresInSeconds: 900 })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -87,10 +92,12 @@ function renderAt(path: string) {
       <AuthProvider>
         <MemoryRouter initialEntries={[path]}>
           <AppRoutes />
+          {extra}
         </MemoryRouter>
       </AuthProvider>
     </QueryClientProvider>,
   )
+  return { queryClient }
 }
 
 function useBaseHandlers(list: ShoppingList = makeList()) {
@@ -400,6 +407,178 @@ describe('Finalizar compra', () => {
   })
 })
 
+async function toConfirm(user: ReturnType<typeof userEvent.setup>) {
+  await screen.findByRole('heading', { name: /Paso 1 de 3/ })
+  await user.type(screen.getAllByLabelText('Precio unitario')[1] as HTMLElement, '10')
+  await user.click(screen.getByRole('button', { name: 'Siguiente' }))
+  await user.click(await screen.findByRole('button', { name: 'Siguiente' }))
+  return screen.findByRole('button', { name: 'Confirmar compra' })
+}
+
+describe('Finalizar compra — robustez', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('con la red caída (POST y refetch fallan) conserva lo cargado y permite reintentar', async () => {
+    useBaseHandlers()
+    let listCalls = 0
+    server.use(
+      http.get(`${API}/shopping-lists/${LIST_ID}`, () => {
+        listCalls++
+        return listCalls === 1 ? HttpResponse.json(makeList()) : HttpResponse.error()
+      }),
+      http.post(`${API}/shopping-lists/${LIST_ID}/complete`, () => HttpResponse.error()),
+    )
+    const user = userEvent.setup()
+    renderAt(`/listas/${LIST_ID}/finalizar`)
+    await user.click(await toConfirm(user))
+    expect(await screen.findByText(/No pudimos registrar la compra/)).toBeInTheDocument()
+    expect(await screen.findByText(/No pudimos actualizar los datos/)).toBeInTheDocument()
+    // El wizard sigue montado con los valores cargados.
+    expect(screen.getByRole('heading', { name: /Paso 3 de 3/ })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Atrás' }))
+    await user.click(screen.getByRole('button', { name: 'Atrás' }))
+    expect(screen.getAllByLabelText('Precio unitario')[1]).toHaveValue('10')
+
+    // Vuelve la red: el reintento envía lo mismo.
+    server.use(
+      http.get(`${API}/shopping-lists/${LIST_ID}`, () => HttpResponse.json(makeList())),
+      http.post(`${API}/shopping-lists/${LIST_ID}/complete`, () =>
+        HttpResponse.json(purchase(), { status: 201 }),
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: 'Siguiente' }))
+    await user.click(await screen.findByRole('button', { name: 'Siguiente' }))
+    await user.click(await screen.findByRole('button', { name: 'Confirmar compra' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Compra registrada')
+  })
+
+  it('400 sobre items[i].productId muestra un mensaje general en español', async () => {
+    useBaseHandlers()
+    server.use(
+      http.post(`${API}/shopping-lists/${LIST_ID}/complete`, () =>
+        HttpResponse.json(
+          problem(400, 'VALIDATION_ERROR', [{ field: 'items[0].productId', message: 'mismatch' }]),
+          { status: 400 },
+        ),
+      ),
+    )
+    const user = userEvent.setup()
+    renderAt(`/listas/${LIST_ID}/finalizar`)
+    await user.click(await toConfirm(user))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('La lista cambió o algún ítem ya no es válido')
+    await waitFor(() => expect(alert).toHaveFocus())
+    expect(screen.queryByText(/mismatch/)).not.toBeInTheDocument()
+  })
+
+  it('404 del POST: avisa que la lista no existe y ofrece volver', async () => {
+    useBaseHandlers()
+    server.use(
+      http.post(`${API}/shopping-lists/${LIST_ID}/complete`, () =>
+        HttpResponse.json(problem(404, 'NOT_FOUND'), { status: 404 }),
+      ),
+    )
+    const user = userEvent.setup()
+    renderAt(`/listas/${LIST_ID}/finalizar`)
+    await user.click(await toConfirm(user))
+    expect(await screen.findByRole('alert')).toHaveTextContent('No encontramos la lista')
+    expect(screen.getByRole('link', { name: 'Volver a las listas' })).toHaveAttribute(
+      'href',
+      '/listas',
+    )
+  })
+
+  it('422 UNSUPPORTED_CURRENCY marca el total en el paso 2', async () => {
+    useBaseHandlers()
+    server.use(
+      http.post(`${API}/shopping-lists/${LIST_ID}/complete`, () =>
+        HttpResponse.json(problem(422, 'UNSUPPORTED_CURRENCY'), { status: 422 }),
+      ),
+    )
+    const user = userEvent.setup()
+    renderAt(`/listas/${LIST_ID}/finalizar`)
+    await user.click(await toConfirm(user))
+    await screen.findByRole('heading', { name: /Paso 2 de 3/ })
+    const total = screen.getByLabelText(/Total/)
+    expect(total).toHaveAttribute('aria-invalid', 'true')
+    expect(total).toHaveFocus()
+    expect(screen.getAllByText(/La moneda .* coincide/).length).toBeGreaterThan(0)
+  })
+
+  it('409 del POST: pide volver a la lista y reintentar', async () => {
+    useBaseHandlers()
+    server.use(
+      http.post(`${API}/shopping-lists/${LIST_ID}/complete`, () =>
+        HttpResponse.json(problem(409, 'CONFLICT'), { status: 409 }),
+      ),
+    )
+    const user = userEvent.setup()
+    renderAt(`/listas/${LIST_ID}/finalizar`)
+    await user.click(await toConfirm(user))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'La lista cambió mientras la completabas',
+    )
+  })
+
+  it('dos submits en el mismo tick envían un solo POST', async () => {
+    useBaseHandlers()
+    let calls = 0
+    server.use(
+      http.post(`${API}/shopping-lists/${LIST_ID}/complete`, async () => {
+        calls++
+        await delay(30)
+        return HttpResponse.json(purchase(), { status: 201 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderAt(`/listas/${LIST_ID}/finalizar`)
+    const button = await toConfirm(user)
+    const form = button.closest('form') as HTMLFormElement
+    fireEvent.submit(form)
+    fireEvent.submit(form)
+    await screen.findByRole('status')
+    expect(calls).toBe(1)
+  })
+
+  it('tras el éxito el detalle ya no se ve abierto y el aviso se limpia del history', async () => {
+    useBaseHandlers()
+    server.use(
+      http.post(`${API}/shopping-lists/${LIST_ID}/complete`, () => {
+        // El refetch posterior no responde: se ve lo que quedó en cache.
+        server.use(http.get(`${API}/shopping-lists/${LIST_ID}`, async () => delay('infinite')))
+        return HttpResponse.json(purchase(), { status: 201 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderAt(`/listas/${LIST_ID}/finalizar`, <LocationState />)
+    await user.click(await toConfirm(user))
+    expect(await screen.findByRole('status')).toHaveTextContent('Compra registrada')
+    expect(screen.getByText('Completada')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Finalizar compra' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('loc-state')).toHaveTextContent('null'))
+    // El aviso sigue visible en esta visita.
+    expect(screen.getByRole('status')).toHaveTextContent('Compra registrada')
+  })
+
+  it('el aviso no reaparece si ya no hay state en la ubicación (recarga)', async () => {
+    useBaseHandlers(makeList({ status: 'COMPLETED' }))
+    renderAt(`/listas/${LIST_ID}`)
+    await screen.findByRole('heading', { name: 'Compra semanal' })
+    expect(screen.queryByText(/Compra registrada/)).not.toBeInTheDocument()
+  })
+
+  it('la fecha por defecto usa la zona horaria del hogar (reloj fijo)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-03-15T01:30:00Z')) // 14/03 22:30 en Buenos Aires
+    useBaseHandlers()
+    const user = userEvent.setup()
+    renderAt(`/listas/${LIST_ID}/finalizar`)
+    await toConfirm(user)
+    await user.click(screen.getByRole('button', { name: 'Atrás' }))
+    expect(screen.getByLabelText('Fecha')).toHaveValue('2026-03-14')
+  })
+})
+
 describe('mapCompleteProblem', () => {
   const make = (
     status: number,
@@ -424,11 +603,18 @@ describe('mapCompleteProblem', () => {
       'x',
     )
     expect(mapped.fields).toEqual({ paidBy: expect.stringMatching(/pagador/) })
-    expect(mapped.message).toBe('')
+    expect(mapped.message).toMatch(/La lista cambió/) // `foo` no se puede mapear
     expect(
       mapCompleteProblem(make(400, 'VALIDATION_ERROR', [{ field: 'foo', message: 'b' }]), 'x')
         .message,
-    ).toBe('Revisá los datos de la compra.')
+    ).toMatch(/La lista cambió/)
+    expect(mapCompleteProblem(make(400, 'VALIDATION_ERROR'), 'x').message).toBe(
+      'Revisá los datos de la compra.',
+    )
+    for (const field of ['items[0].productId', 'items[1].listItemId', 'items[0].unit'])
+      expect(
+        mapCompleteProblem(make(400, 'VALIDATION_ERROR', [{ field, message: 'b' }]), 'x'),
+      ).toMatchObject({ fields: {}, message: expect.stringMatching(/La lista cambió/) })
     expect(mapCompleteProblem(make(500, 'INTERNAL_ERROR'), 'fallback').message).toBe('fallback')
   })
 })
