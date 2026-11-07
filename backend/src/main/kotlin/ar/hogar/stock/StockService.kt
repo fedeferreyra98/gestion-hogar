@@ -101,6 +101,38 @@ class StockService(
         return toDtos(householdId, listOf(item), context(householdId)).single()
     }
 
+    /** Alta de un lote por una compra (BL-108): vinculado al ítem de compra, con movimiento `IN`. */
+    @Transactional
+    fun addPurchased(
+        householdId: UUID,
+        memberId: UUID,
+        productId: UUID,
+        quantity: BigDecimal,
+        unit: ar.hogar.catalog.Unit,
+        expiryDate: LocalDate?,
+        purchaseItemId: UUID,
+    ) {
+        expiryDate?.let(::checkExpiryRange)
+        val now = clock.instant()
+        val item =
+            items.save(
+                StockItem(
+                    id = UUID.randomUUID(),
+                    householdId = householdId,
+                    productId = productId,
+                    quantity = quantity,
+                    initialQuantity = quantity,
+                    unit = unit,
+                    expiryDate = expiryDate,
+                    location = null,
+                    purchaseItemId = purchaseItemId,
+                    addedAt = now,
+                    updatedAt = now,
+                ),
+            )
+        movements.save(movement(item.id, MovementType.IN, quantity, memberId))
+    }
+
     @Transactional
     fun update(
         householdId: UUID,
