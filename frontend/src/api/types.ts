@@ -34,3 +34,10 @@ export type CategoryInput = Schemas['CategoryInput']
 export type Product = Schemas['Product']
 export type ProductInput = Schemas['ProductInput']
 export type ProductPage = Omit<Schemas['ProductPage'], 'content'> & { content: Product[] }
+
+// Stock
+export type StockItem = Schemas['StockItem']
+export type StockItemPage = Omit<Schemas['StockItemPage'], 'content'> & { content: StockItem[] }
+export type StockAlerts = Schemas['StockAlerts']
+export type ExpiryStatus = Schemas['ExpiryStatus']
+export type CreateStockItemRequest = Schemas['CreateStockItemRequest']

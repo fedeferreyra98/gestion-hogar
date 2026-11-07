@@ -135,7 +135,7 @@ CA: total por defecto = suma; validaciones Zod; flujo completo con MSW; `lib/mon
 Histórico con filtros y total filtrado, alta/edición manual, detalle de compra.
 CA: paginación infinita o por páginas; filtros reflejados en la URL.
 
-**BL-156 · Stock UI [M] · BL-151, BL-106** · `TODO`
+**BL-156 · Stock UI [M] · BL-151, BL-106** · `DONE`
 Listado agrupado por vencimiento con badges de estado, alta manual, consumir (rápido: botones −1/todo), descartar, banner de alertas.
 CA: colores accesibles (no solo color); consumo desde la lista en ≤ 2 toques.
 
