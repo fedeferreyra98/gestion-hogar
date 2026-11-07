@@ -1,6 +1,7 @@
 package ar.hogar.suggestion
 
 import ar.hogar.auth.HouseholdRepository
+import ar.hogar.catalog.Unit
 import ar.hogar.common.NotFoundException
 import ar.hogar.shopping.ShoppingListRepository
 import ar.hogar.stock.ProductRefDto
@@ -18,6 +19,7 @@ enum class SuggestionReason { OUT_OF_STOCK, EXPIRING, EXPIRED }
 data class SuggestionDto(
     val product: ProductRefDto,
     val reason: SuggestionReason,
+    val defaultUnit: Unit,
     val detail: String? = null,
 )
 
@@ -48,16 +50,21 @@ class SuggestionService(
         // y OUT_OF_STOCK exige stock 0, así que los conjuntos no se solapan.
         val expiring =
             repo.expiring(householdId, listId, today.plusDays(household.expiryWarningDays.toLong())).map {
-                val earliest = it[2] as LocalDate
+                val earliest = it[3] as LocalDate
                 SuggestionDto(
                     ProductRefDto(it[0] as UUID, it[1] as String),
                     if (earliest.isBefore(today)) SuggestionReason.EXPIRED else SuggestionReason.EXPIRING,
+                    it[2] as Unit,
                     earliest.toString(),
                 )
             }
         val outOfStock =
             repo.outOfStock(householdId, listId).map {
-                SuggestionDto(ProductRefDto(it[0] as UUID, it[1] as String), SuggestionReason.OUT_OF_STOCK)
+                SuggestionDto(
+                    ProductRefDto(it[0] as UUID, it[1] as String),
+                    SuggestionReason.OUT_OF_STOCK,
+                    it[2] as Unit,
+                )
             }
         // El corte a MAX_RESULTS es en memoria: hay que ordenar la unión de ambos conjuntos antes de cortar.
         return (outOfStock + expiring)

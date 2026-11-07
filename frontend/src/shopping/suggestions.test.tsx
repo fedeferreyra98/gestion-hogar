@@ -1,11 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse, delay } from 'msw'
 import { MemoryRouter } from 'react-router-dom'
 import { AppRoutes } from '@/AppRoutes'
 import { resetApiClient } from '@/api/client'
-import type { Product, ShoppingList, Suggestion } from '@/api/types'
+import type { ShoppingList, ShoppingListItem, Suggestion } from '@/api/types'
 import { AuthProvider } from '@/auth/AuthProvider'
 import { applyTokens, resetSession } from '@/auth/session'
 import { server } from '@/test/server'
@@ -15,20 +15,20 @@ const LIST_ID = '22222222-2222-4222-8222-222222222222'
 const LECHE_ID = '11111111-1111-4111-8111-111111111111'
 const PAN_ID = '44444444-4444-4444-8444-444444444444'
 
-const leche: Product = {
-  id: LECHE_ID,
-  name: 'Leche',
-  categoryId: null,
-  defaultUnit: 'L',
-  defaultShelfLifeDays: 7,
-  archived: false,
-}
-const pan: Product = { ...leche, id: PAN_ID, name: 'Pan', defaultUnit: 'UNIT' }
-
 const suggestions: Suggestion[] = [
-  { product: { id: LECHE_ID, name: 'Leche' }, reason: 'OUT_OF_STOCK' },
-  { product: { id: PAN_ID, name: 'Pan' }, reason: 'EXPIRING', detail: '2026-11-09' },
-  { product: { id: 'p3', name: 'Yogur' }, reason: 'EXPIRED', detail: '2026-11-01' },
+  { product: { id: LECHE_ID, name: 'Leche' }, reason: 'OUT_OF_STOCK', defaultUnit: 'L' },
+  {
+    product: { id: PAN_ID, name: 'Pan' },
+    reason: 'EXPIRING',
+    defaultUnit: 'UNIT',
+    detail: '2026-11-09',
+  },
+  {
+    product: { id: 'p3', name: 'Yogur' },
+    reason: 'EXPIRED',
+    defaultUnit: 'KG',
+    detail: '2026-11-01',
+  },
 ]
 
 function makeList(overrides: Partial<ShoppingList> = {}): ShoppingList {
@@ -45,20 +45,6 @@ function makeList(overrides: Partial<ShoppingList> = {}): ShoppingList {
 
 function problem(status: number, code: string) {
   return { type: 'about:blank', title: code, status, code, detail: code }
-}
-
-function productsHandler() {
-  return http.get(`${API}/products`, ({ request }) => {
-    const q = new URL(request.url).searchParams.get('q')?.toLowerCase() ?? ''
-    const content = [leche, pan].filter((p) => p.name.toLowerCase().includes(q))
-    return HttpResponse.json({
-      content,
-      page: 0,
-      size: 100,
-      totalElements: content.length,
-      totalPages: 1,
-    })
-  })
 }
 
 function renderDetail() {
@@ -86,12 +72,20 @@ describe('SuggestionsPanel', () => {
   it('muestra el motivo en texto, con fecha es-AR, y agrega con unidad por defecto', async () => {
     let added = false
     let addBody: unknown
+    const lecheItem: ShoppingListItem = {
+      id: 'i1',
+      product: { id: LECHE_ID, name: 'Leche' },
+      quantity: '1.000',
+      unit: 'L',
+      checked: false,
+    }
     server.use(
-      http.get(`${API}/shopping-lists/${LIST_ID}`, () => HttpResponse.json(makeList())),
+      http.get(`${API}/shopping-lists/${LIST_ID}`, () =>
+        HttpResponse.json(makeList({ items: added ? [lecheItem] : [] })),
+      ),
       http.get(`${API}/shopping-lists/${LIST_ID}/suggestions`, () =>
         HttpResponse.json(added ? suggestions.slice(1) : suggestions),
       ),
-      productsHandler(),
       http.post(`${API}/shopping-lists/${LIST_ID}/items`, async ({ request }) => {
         addBody = await request.json()
         added = true
@@ -124,9 +118,12 @@ describe('SuggestionsPanel', () => {
       ).not.toBeInTheDocument(),
     )
     expect(addBody).toEqual({ productId: LECHE_ID, quantity: '1', unit: 'L' })
+    // CA: la sugerencia entra a la lista real y sale del panel.
+    const items = await screen.findByRole('list', { name: 'Ítems de la lista' })
+    expect(within(items).getByRole('checkbox', { name: /Leche/ })).toBeInTheDocument()
     expect(within(panel).getByRole('button', { name: 'Agregar Pan' })).toBeInTheDocument()
     expect(await screen.findByText('Agregamos Leche a la lista.')).toBeInTheDocument()
-    expect(panel.querySelector('#suggestions-title')).toHaveFocus()
+    expect(within(panel).getByRole('heading', { name: 'Te puede faltar' })).toHaveFocus()
   })
 
   it('doble clic en Agregar envía una sola alta', async () => {
@@ -136,7 +133,6 @@ describe('SuggestionsPanel', () => {
       http.get(`${API}/shopping-lists/${LIST_ID}/suggestions`, () =>
         HttpResponse.json(suggestions.slice(0, 1)),
       ),
-      productsHandler(),
       http.post(`${API}/shopping-lists/${LIST_ID}/items`, async () => {
         posts += 1
         await delay(50)
@@ -152,11 +148,14 @@ describe('SuggestionsPanel', () => {
         )
       }),
     )
-    const user = userEvent.setup()
     renderDetail()
 
     const button = await screen.findByRole('button', { name: 'Agregar Leche' })
-    await user.dblClick(button)
+    // Dos clics en el mismo tick (sin re-render entre ambos): solo la guarda síncrona los frena.
+    act(() => {
+      button.click()
+      button.click()
+    })
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: 'Agregar Leche' })).not.toBeInTheDocument(),
     )
@@ -169,7 +168,6 @@ describe('SuggestionsPanel', () => {
       http.get(`${API}/shopping-lists/${LIST_ID}/suggestions`, () =>
         HttpResponse.json(suggestions.slice(0, 1)),
       ),
-      productsHandler(),
       http.post(`${API}/shopping-lists/${LIST_ID}/items`, () =>
         HttpResponse.json(problem(500, 'INTERNAL_ERROR'), { status: 500 }),
       ),
@@ -183,16 +181,19 @@ describe('SuggestionsPanel', () => {
     expect(screen.getByRole('button', { name: 'Agregar Leche' })).toBeEnabled()
   })
 
-  it('LIST_NOT_OPEN al agregar muestra el mensaje en español', async () => {
+  it('LIST_NOT_OPEN al agregar: el aviso sobrevive al desmontaje del panel y la lista pasa a solo lectura', async () => {
+    let rejected = false
     server.use(
-      http.get(`${API}/shopping-lists/${LIST_ID}`, () => HttpResponse.json(makeList())),
+      http.get(`${API}/shopping-lists/${LIST_ID}`, () =>
+        HttpResponse.json(makeList({ status: rejected ? 'COMPLETED' : 'OPEN' })),
+      ),
       http.get(`${API}/shopping-lists/${LIST_ID}/suggestions`, () =>
         HttpResponse.json(suggestions.slice(0, 1)),
       ),
-      productsHandler(),
-      http.post(`${API}/shopping-lists/${LIST_ID}/items`, () =>
-        HttpResponse.json(problem(422, 'LIST_NOT_OPEN'), { status: 422 }),
-      ),
+      http.post(`${API}/shopping-lists/${LIST_ID}/items`, () => {
+        rejected = true
+        return HttpResponse.json(problem(422, 'LIST_NOT_OPEN'), { status: 422 })
+      }),
     )
     const user = userEvent.setup()
     renderDetail()
@@ -201,7 +202,35 @@ describe('SuggestionsPanel', () => {
 
     expect(
       await screen.findByText('La lista ya no está abierta, no se puede modificar.'),
-    ).toBeInTheDocument()
+    ).toHaveAttribute('role', 'alert')
+    expect(await screen.findByRole('note')).toHaveTextContent('solo lectura')
+    expect(screen.queryByRole('region', { name: 'Te puede faltar' })).not.toBeInTheDocument()
+  })
+
+  it('muestra 5 sugerencias y el resto se expande con un botón accesible', async () => {
+    const many: Suggestion[] = Array.from({ length: 8 }, (_, i) => ({
+      product: { id: `p-${i}`, name: `Producto ${i + 1}` },
+      reason: 'OUT_OF_STOCK',
+      defaultUnit: 'UNIT',
+    }))
+    server.use(
+      http.get(`${API}/shopping-lists/${LIST_ID}`, () => HttpResponse.json(makeList())),
+      http.get(`${API}/shopping-lists/${LIST_ID}/suggestions`, () => HttpResponse.json(many)),
+    )
+    const user = userEvent.setup()
+    renderDetail()
+
+    const list = await screen.findByRole('list', { name: 'Sugerencias' })
+    expect(within(list).getAllByRole('listitem')).toHaveLength(5)
+    const toggle = screen.getByRole('button', { name: 'Ver las 8 sugerencias' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    await user.click(toggle)
+    expect(within(list).getAllByRole('listitem')).toHaveLength(8)
+    expect(screen.getByRole('button', { name: 'Ver menos' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
   })
 
   it('error al cargar: alerta con Reintentar (no se muestra como vacío) y se recupera', async () => {

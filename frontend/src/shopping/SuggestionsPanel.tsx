@@ -1,48 +1,53 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import {
   shoppingSuggestionsQueryKey,
   useAddShoppingListItem,
   useShoppingSuggestions,
 } from '@/api/hooks/useShoppingLists'
-import { fetchProducts } from '@/api/hooks/useCatalog'
 import type { Suggestion } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { problemMessage } from '@/shopping/status'
+import { reasonText } from '@/shopping/suggestionReason'
 
-const REASON_LABELS: Record<Suggestion['reason'], string> = {
-  OUT_OF_STOCK: 'Sin stock',
-  EXPIRING: 'Por vencer',
-  EXPIRED: 'Vencido',
-}
+/** A 375 px hasta 50 sugerencias empujarían la lista real: se muestran 5 y el resto se expande. */
+const COLLAPSED_COUNT = 5
 
-/** `YYYY-MM-DD` → `DD/MM/YYYY` (sin pasar por Date: evita corrimientos por zona horaria). */
-function formatIsoDate(iso: string): string | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso)
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : null
-}
-
-export function reasonText(s: Suggestion): string {
-  const date = s.detail ? formatIsoDate(s.detail) : null
-  if (s.reason === 'OUT_OF_STOCK') return REASON_LABELS.OUT_OF_STOCK
-  if (!date) return REASON_LABELS[s.reason]
-  return s.reason === 'EXPIRED' ? `Vencido el ${date}` : `Vence el ${date}`
+interface SuggestionsPanelProps {
+  listId: string
+  /**
+   * Los errores de alta se informan a la página: si el alta revela que la lista ya no está
+   * abierta, este panel se desmonta antes de poder mostrarlos.
+   */
+  onMessage: (message: string | null) => void
 }
 
 /**
  * Panel "Te puede faltar": productos sin stock o con lotes vencidos/por vencer que no están en la
  * lista. Solo se monta en listas OPEN. Agregar usa cantidad 1 y la unidad por defecto del producto.
  */
-export function SuggestionsPanel({ listId }: { listId: string }) {
+export function SuggestionsPanel({ listId, onMessage }: SuggestionsPanelProps) {
   const queryClient = useQueryClient()
-  const { data, isLoading, isError, refetch, isFetching } = useShoppingSuggestions(listId)
+  const { data, isError, refetch, isFetching, fetchStatus } = useShoppingSuggestions(listId)
   const addItem = useAddShoppingListItem(listId)
+  const titleId = useId()
+  const listDomId = useId()
   // El ref bloquea el doble clic de forma síncrona; el state solo pinta el botón deshabilitado.
   const inFlight = useRef(new Set<string>())
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set())
-  const [error, setError] = useState<string | null>(null)
   const [added, setAdded] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
   const headingRef = useRef<HTMLHeadingElement>(null)
+  const restoreFocus = useRef(false)
+
+  // El botón pulsado desaparece con la sugerencia: el foco pasa al título solo si no quedó en
+  // otro control (si el usuario ya se movió, no se lo roba).
+  useEffect(() => {
+    if (!restoreFocus.current) return
+    restoreFocus.current = false
+    const active = document.activeElement
+    if (!active || active === document.body) headingRef.current?.focus()
+  }, [data])
 
   function setBusy(productId: string, busy: boolean) {
     if (busy) inFlight.current.add(productId)
@@ -54,50 +59,55 @@ export function SuggestionsPanel({ listId }: { listId: string }) {
     const productId = s.product.id
     if (inFlight.current.has(productId)) return
     setBusy(productId, true)
-    setError(null)
+    onMessage(null)
     setAdded(null)
     try {
-      // La sugerencia solo trae {id, name}: la unidad por defecto sale del catálogo.
-      const page = await fetchProducts({ q: s.product.name, size: 100 })
-      const product = page.content.find((p) => p.id === productId)
-      if (!product) {
-        setError(`No pudimos obtener los datos de ${s.product.name}.`)
-        return
-      }
-      await addItem.mutateAsync({ productId, quantity: '1', unit: product.defaultUnit })
-      queryClient.setQueryData<Suggestion[]>(shoppingSuggestionsQueryKey(listId), (old) =>
+      await addItem.mutateAsync({ productId, quantity: '1', unit: s.defaultUnit })
+      const key = shoppingSuggestionsQueryKey(listId)
+      // Un refetch en vuelo (p. ej. por foco de ventana) podría traer la sugerencia de nuevo.
+      await queryClient.cancelQueries({ queryKey: key })
+      restoreFocus.current = true
+      queryClient.setQueryData<Suggestion[]>(key, (old) =>
         old?.filter((x) => x.product.id !== productId),
       )
       setAdded(s.product.name)
-      // El botón desaparece: el foco pasa al título del panel para no perderlo.
-      headingRef.current?.focus()
     } catch (err) {
-      setError(problemMessage(err, `No pudimos agregar ${s.product.name}.`))
+      // `mutateAsync` espera el refetch: si la lista dejó de estar abierta este panel ya no existe.
+      onMessage(problemMessage(err, `No pudimos agregar ${s.product.name}.`))
     } finally {
       setBusy(productId, false)
     }
   }
 
   let body
-  if (isLoading) {
-    body = (
-      <p role="status" className="text-sm text-muted-foreground">
-        Cargando sugerencias…
-      </p>
-    )
-  } else if (!data) {
+  if (!data && isError) {
     // Error sin datos previos: nunca se muestra como "sin sugerencias".
     body = (
       <div className="flex flex-col items-start gap-2">
         <p role="alert" className="text-sm text-red-600">
-          {isError ? 'No pudimos cargar las sugerencias.' : 'No hay datos de sugerencias.'}
+          No pudimos cargar las sugerencias.
         </p>
-        <Button type="button" size="sm" variant="outline" onClick={() => void refetch()}>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={isFetching}
+          onClick={() => void refetch()}
+        >
           Reintentar
         </Button>
       </div>
     )
+  } else if (!data) {
+    body = (
+      <p role="status" className="text-sm text-muted-foreground">
+        {fetchStatus === 'paused'
+          ? 'Sin conexión: cargaremos las sugerencias cuando vuelva.'
+          : 'Cargando sugerencias…'}
+      </p>
+    )
   } else {
+    const visible = expanded ? data : data.slice(0, COLLAPSED_COUNT)
     body = (
       <>
         {isError && (
@@ -121,29 +131,44 @@ export function SuggestionsPanel({ listId }: { listId: string }) {
             Por ahora no hay sugerencias: nada te falta según tu stock.
           </p>
         ) : (
-          <ul aria-label="Sugerencias" className="flex flex-col gap-1">
-            {data.map((s) => (
-              <li
-                key={s.product.id}
-                className="flex items-center justify-between gap-2 rounded-md border border-border p-2"
-              >
-                <div className="min-w-0">
-                  <p className="break-words text-sm font-medium">{s.product.name}</p>
-                  <p className="text-xs text-muted-foreground">{reasonText(s)}</p>
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  aria-label={`Agregar ${s.product.name}`}
-                  disabled={pending.has(s.product.id)}
-                  onClick={() => void handleAdd(s)}
+          <>
+            <ul id={listDomId} aria-label="Sugerencias" className="flex flex-col gap-1">
+              {visible.map((s) => (
+                <li
+                  key={s.product.id}
+                  className="flex items-center justify-between gap-2 rounded-md border border-border p-2"
                 >
-                  Agregar
-                </Button>
-              </li>
-            ))}
-          </ul>
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-medium">{s.product.name}</p>
+                    <p className="text-xs text-muted-foreground">{reasonText(s)}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    aria-label={`Agregar ${s.product.name}`}
+                    disabled={pending.has(s.product.id)}
+                    onClick={() => void handleAdd(s)}
+                  >
+                    Agregar
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            {data.length > COLLAPSED_COUNT && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="self-start"
+                aria-expanded={expanded}
+                aria-controls={listDomId}
+                onClick={() => setExpanded((v) => !v)}
+              >
+                {expanded ? 'Ver menos' : `Ver las ${data.length} sugerencias`}
+              </Button>
+            )}
+          </>
         )}
       </>
     )
@@ -151,18 +176,13 @@ export function SuggestionsPanel({ listId }: { listId: string }) {
 
   return (
     <section
-      aria-labelledby="suggestions-title"
+      aria-labelledby={titleId}
       className="flex flex-col gap-2 rounded-md border border-border p-3"
     >
-      <h2 id="suggestions-title" ref={headingRef} tabIndex={-1} className="text-base font-semibold">
+      <h2 id={titleId} ref={headingRef} tabIndex={-1} className="text-base font-semibold">
         Te puede faltar
       </h2>
       {body}
-      {error && (
-        <p role="alert" className="text-sm text-red-600">
-          {error}
-        </p>
-      )}
       <p aria-live="polite" className="sr-only">
         {added ? `Agregamos ${added} a la lista.` : ''}
       </p>

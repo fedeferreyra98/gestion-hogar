@@ -94,8 +94,9 @@ class SuggestionIntegrationTest : IntegrationTestBase() {
     private fun product(
         t: String,
         name: String,
+        defaultUnit: String = "UNIT",
     ) = json(
-        call(HttpMethod.POST, "products", mapOf("name" to name, "defaultUnit" to "UNIT"), t),
+        call(HttpMethod.POST, "products", mapOf("name" to name, "defaultUnit" to defaultUnit), t),
     )["id"].asText()
 
     private fun newList(t: String) =
@@ -190,6 +191,24 @@ class SuggestionIntegrationTest : IntegrationTestBase() {
             ),
             suggestions(t, list),
         )
+    }
+
+    @Test
+    fun `each suggestion carries the default unit of its product`() {
+        val t = owner()
+        val agotado = product(t, "Harina", "KG")
+        val porVencer = product(t, "Jugo", "L")
+        val vencido = product(t, "Fideos", "PACK")
+        buy(t, agotado)
+        consumeAll(t, agotado)
+        buy(t, porVencer, "2040-06-18")
+        buy(t, vencido, "2040-06-14")
+        val list = newList(t)
+
+        val units =
+            json(call(HttpMethod.GET, "shopping-lists/$list/suggestions", bearer = t))
+                .associate { it["product"]["name"].asText() to it["defaultUnit"].asText() }
+        assertEquals(mapOf("Harina" to "KG", "Jugo" to "L", "Fideos" to "PACK"), units)
     }
 
     @Test

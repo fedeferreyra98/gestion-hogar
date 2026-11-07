@@ -254,13 +254,13 @@ function ShoppingListDetail({ id }: { id: string }) {
         </p>
       )}
 
-      {isOpen && <SuggestionsPanel listId={list.id} />}
-
       {message && (
         <p role="alert" className="text-sm text-red-600">
           {message}
         </p>
       )}
+
+      {isOpen && <SuggestionsPanel listId={list.id} onMessage={setMessage} />}
 
       {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">La lista no tiene ítems todavía.</p>
