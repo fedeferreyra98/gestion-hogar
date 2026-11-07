@@ -15,6 +15,7 @@ import { formatMinor } from '@/lib/money'
 import type { PurchaseCompletedState } from '@/shopping/complete/CompleteListWizard'
 import { ArchiveAction } from '@/shopping/ArchiveAction'
 import { parseQuantity } from '@/shopping/quantity'
+import { SuggestionsPanel } from '@/shopping/SuggestionsPanel'
 import { ShoppingItemRow } from '@/shopping/ShoppingItemRow'
 import { STATUS_LABELS, problemMessage } from '@/shopping/status'
 
@@ -258,6 +259,8 @@ function ShoppingListDetail({ id }: { id: string }) {
           {message}
         </p>
       )}
+
+      {isOpen && <SuggestionsPanel listId={list.id} onMessage={setMessage} />}
 
       {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">La lista no tiene ítems todavía.</p>

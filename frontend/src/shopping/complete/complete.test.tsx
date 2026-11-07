@@ -105,6 +105,8 @@ function useBaseHandlers(list: ShoppingList = makeList()) {
     http.get(`${API}/me`, () => HttpResponse.json(me)),
     http.get(`${API}/members`, () => HttpResponse.json(members)),
     http.get(`${API}/shopping-lists/${LIST_ID}`, () => HttpResponse.json(list)),
+    // Tras finalizar se navega al detalle, que monta el panel de sugerencias.
+    http.get(`${API}/shopping-lists/${LIST_ID}/suggestions`, () => HttpResponse.json([])),
   )
 }
 

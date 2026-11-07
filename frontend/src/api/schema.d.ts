@@ -854,6 +854,7 @@ export interface components {
       product: components['schemas']['Ref']
       /** @enum {string} */
       reason: 'OUT_OF_STOCK' | 'EXPIRING' | 'EXPIRED'
+      defaultUnit: components['schemas']['Unit']
       detail?: string
     }
     /** @enum {string} */

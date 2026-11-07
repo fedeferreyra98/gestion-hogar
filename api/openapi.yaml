@@ -1309,10 +1309,11 @@ components:
               items: { $ref: '#/components/schemas/ShoppingListSummary' }
     Suggestion:
       type: object
-      required: [product, reason]
+      required: [product, reason, defaultUnit]
       properties:
         product: { $ref: '#/components/schemas/Ref' }
         reason: { type: string, enum: [OUT_OF_STOCK, EXPIRING, EXPIRED] }
+        defaultUnit: { $ref: '#/components/schemas/Unit' }
         detail: { type: string }
     LeftoverAction:
       type: string

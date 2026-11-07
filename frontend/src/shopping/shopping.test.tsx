@@ -57,7 +57,11 @@ function renderAt(path: string) {
   )
 }
 
-beforeEach(() => resetApiClient())
+beforeEach(() => {
+  resetApiClient()
+  // El panel "Te puede faltar" se monta en el detalle de listas OPEN: sin sugerencias por defecto.
+  server.use(http.get(`${API}/shopping-lists/:id/suggestions`, () => HttpResponse.json([])))
+})
 afterEach(() => {
   resetSession()
   vi.restoreAllMocks()
