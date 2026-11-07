@@ -35,6 +35,17 @@ export type Product = Schemas['Product']
 export type ProductInput = Schemas['ProductInput']
 export type ProductPage = Omit<Schemas['ProductPage'], 'content'> & { content: Product[] }
 
+// Shopping lists
+export type ShoppingListStatus = Schemas['ShoppingListStatus']
+export type ShoppingList = Schemas['ShoppingList']
+export type ShoppingListItem = Schemas['ShoppingListItem']
+export type ShoppingListItemInput = Schemas['ShoppingListItemInput']
+export type UpdateShoppingListItemRequest = Schemas['UpdateShoppingListItemRequest']
+export type ShoppingListSummary = Schemas['ShoppingListSummary']
+export type ShoppingListSummaryPage = Omit<Schemas['ShoppingListSummaryPage'], 'content'> & {
+  content: ShoppingListSummary[]
+}
+
 // Stock
 export type StockItem = Schemas['StockItem']
 export type StockItemPage = Omit<Schemas['StockItemPage'], 'content'> & { content: StockItem[] }
