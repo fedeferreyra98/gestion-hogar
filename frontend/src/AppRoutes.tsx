@@ -5,6 +5,7 @@ import { CatalogPage } from '@/pages/CatalogPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { Placeholder } from '@/pages/Placeholder'
 import { RegisterPage } from '@/pages/RegisterPage'
+import { StockPage } from '@/pages/StockPage'
 
 export function AppRoutes() {
   return (
@@ -16,7 +17,7 @@ export function AppRoutes() {
           <Route index element={<Navigate to="/listas" replace />} />
           <Route path="listas" element={<Placeholder title="Listas" />} />
           <Route path="gastos" element={<Placeholder title="Gastos" />} />
-          <Route path="stock" element={<Placeholder title="Stock" />} />
+          <Route path="stock" element={<StockPage />} />
           <Route path="catalogo" element={<CatalogPage />} />
         </Route>
       </Route>
