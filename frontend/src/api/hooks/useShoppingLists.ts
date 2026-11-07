@@ -1,4 +1,5 @@
 import {
+  useIsMutating,
   useMutation,
   type QueryClient,
   useQuery,
@@ -9,7 +10,11 @@ import {
 import type { Client } from 'openapi-fetch'
 import { getApiClient, unwrap, unwrapVoid } from '../client.ts'
 import { isProblemError, type ProblemError } from '../errors.ts'
+import { expensesRootQueryKey } from './useExpenses.ts'
+import { stockRootQueryKey } from './useStock.ts'
 import type {
+  CompleteListRequest,
+  Purchase,
   ShoppingList,
   ShoppingListItem,
   ShoppingListItemInput,
@@ -124,6 +129,48 @@ export async function deleteShoppingListItem(
     if (isProblemError(err) && err.status === 404) return
     throw err
   }
+}
+
+export async function completeShoppingList(
+  id: string,
+  input: CompleteListRequest,
+  client?: Client<paths>,
+): Promise<Purchase> {
+  return unwrap(
+    (client ?? getApiClient()).POST('/shopping-lists/{id}/complete', {
+      params: { path: { id } },
+      body: input,
+    }),
+  )
+}
+
+export const completeListMutationKey = (id: string) => ['shopping-lists', 'complete', id] as const
+
+/** `true` while a "complete" of this list is in flight (blocks double submits across mounts). */
+export function useIsCompletingShoppingList(id: string): boolean {
+  return useIsMutating({ mutationKey: completeListMutationKey(id) }) > 0
+}
+
+/**
+ * Completa la lista (UC-13). Afecta listas, gastos (nuevo gasto PURCHASE) y stock (lotes nuevos):
+ * se revalidan las tres, también ante error (un 422 LIST_NOT_OPEN indica vista desactualizada).
+ * La revalidación no se espera: la navegación posterior no debe depender de ella.
+ */
+export function useCompleteShoppingList(id: string, client?: Client<paths>) {
+  const queryClient = useQueryClient()
+  return useMutation<Purchase, ProblemError, CompleteListRequest>({
+    mutationKey: completeListMutationKey(id),
+    mutationFn: (input) => completeShoppingList(id, input, client),
+    // El detalle en cache deja de ser OPEN ya: evita mostrarlo obsoleto hasta que vuelva el refetch.
+    onSuccess: () =>
+      queryClient.setQueryData<ShoppingList>(shoppingListQueryKey(id), (list) =>
+        list ? { ...list, status: 'COMPLETED' } : list,
+      ),
+    onSettled: () => {
+      for (const queryKey of [shoppingListsRootQueryKey, expensesRootQueryKey, stockRootQueryKey])
+        void queryClient.invalidateQueries({ queryKey })
+    },
+  })
 }
 
 export type UseShoppingListsOptions = Omit<

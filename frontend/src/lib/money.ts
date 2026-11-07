@@ -57,3 +57,16 @@ export function formatMoney(money: { amountMinor: number; currency: string }): s
 export function minorToInputValue(amountMinor: number, currency = 'ARS'): string {
   return formatMinor(amountMinor, currency).replaceAll('.', '')
 }
+
+/**
+ * Total de una línea: `round(quantity × unitPrice)` en unidades menores, half-up (mismo criterio
+ * que el backend). `quantity` es un `Decimal` de la API (hasta 3 decimales). Usa BigInt: sin float.
+ * Devuelve `null` si la cantidad es inválida o el resultado no es un entero seguro.
+ */
+export function lineTotalMinor(quantity: string, unitPriceMinor: number): number | null {
+  const match = /^(\d+)(?:\.(\d{1,3}))?$/.exec(quantity)
+  if (!match || !Number.isSafeInteger(unitPriceMinor) || unitPriceMinor < 0) return null
+  const scaled = BigInt((match[1] ?? '0') + (match[2] ?? '').padEnd(3, '0'))
+  const total = (scaled * BigInt(unitPriceMinor) + 500n) / 1000n
+  return total <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(total) : null
+}

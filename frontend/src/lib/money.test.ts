@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { formatMinor, formatMoney, minorToInputValue, parseMoneyToMinor } from './money'
+import {
+  formatMinor,
+  formatMoney,
+  lineTotalMinor,
+  minorToInputValue,
+  parseMoneyToMinor,
+} from './money'
 
 describe('parseMoneyToMinor', () => {
   it.each([
@@ -86,5 +92,31 @@ describe('formatMinor / formatMoney', () => {
       expect(parseMoneyToMinor(formatMinor(minor, 'JPY'), 'JPY')).toBe(minor)
       expect(parseMoneyToMinor(minorToInputValue(minor, 'JPY'), 'JPY')).toBe(minor)
     }
+  })
+})
+
+describe('lineTotalMinor', () => {
+  it.each([
+    ['2.000', 150, 300],
+    ['1.500', 1001, 1502], // 1501.5 -> half-up
+    ['0.333', 100, 33], // 33.3
+    ['0.005', 100, 1], // 0.5 -> 1
+    ['0.004', 100, 0],
+    ['3', 1999, 5997],
+    ['999999999.999', 100, 100000000000], // 99999999999,9 -> half-up
+  ])('qty %s × %d = %d', (qty, price, expected) => {
+    expect(lineTotalMinor(qty, price)).toBe(expected)
+  })
+
+  it('rechaza cantidades inválidas y desbordes', () => {
+    expect(lineTotalMinor('1,5', 100)).toBeNull()
+    expect(lineTotalMinor('-1', 100)).toBeNull()
+    expect(lineTotalMinor('1.2345', 100)).toBeNull()
+    expect(lineTotalMinor('999999999.999', Number.MAX_SAFE_INTEGER)).toBeNull()
+  })
+
+  it('es consistente con el parseo es-AR', () => {
+    expect(lineTotalMinor('2', parseMoneyToMinor('1.500,50') ?? 0)).toBe(300100)
+    expect(formatMinor(300100)).toBe('3.001,00')
   })
 })
