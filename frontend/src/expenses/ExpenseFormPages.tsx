@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { isProblemError, type ProblemError } from '@/api/errors'
+import { isProblemError } from '@/api/errors'
 import {
   useCreateExpense,
   useDeleteExpense,
@@ -15,19 +15,12 @@ import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/money'
 import { formatDate } from './dates'
 import { ExpenseForm } from './ExpenseForm'
+import { useListPath } from './listPath'
+import { mapExpenseProblem } from './problems'
 
-function describeError(error: ProblemError | null, fallback: string): string | null {
-  if (!error) return null
-  if (error.status === 409)
-    return 'El gasto cambió o proviene de una compra y no se puede modificar. Recargá e intentá de nuevo.'
-  if (error.status === 422 && error.code === 'UNSUPPORTED_CURRENCY')
-    return 'La moneda no coincide con la del hogar.'
-  return error.status === 400 && error.detail ? error.detail : fallback
-}
-
-function BackLink() {
+function BackLink({ to }: { to: string }) {
   return (
-    <Link to="/gastos" className="text-sm text-primary underline">
+    <Link to={to} className="text-sm text-primary underline">
       ← Volver a gastos
     </Link>
   )
@@ -35,6 +28,7 @@ function BackLink() {
 
 export function NewExpensePage() {
   const navigate = useNavigate()
+  const listPath = useListPath()
   const me = useMe()
   const categories = useCategories()
   const members = useMembers()
@@ -49,25 +43,30 @@ export function NewExpensePage() {
   if (!me.data || !categories.data || !members.data)
     return <p className="text-sm text-muted-foreground">Cargando…</p>
 
+  const problem = create.error
+    ? mapExpenseProblem(create.error, 'No pudimos guardar el gasto. Intentá de nuevo.')
+    : null
+
   function submit(input: ExpenseInput) {
-    create.mutate(input, { onSuccess: () => navigate('/gastos') })
+    create.mutate(input, { onSuccess: () => navigate(listPath) })
   }
 
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-4">
-      <BackLink />
+      <BackLink to={listPath} />
       <h1 className="text-2xl font-semibold">Nuevo gasto</h1>
       <ExpenseForm
         currency={me.data.household.baseCurrency}
+        timeZone={me.data.household.timezone}
         categories={categories.data}
         members={members.data}
         defaultPaidBy={me.data.member.id}
         submitLabel="Guardar gasto"
         submitting={create.isPending}
-        serverError={describeError(create.error, 'No pudimos guardar el gasto. Intentá de nuevo.')}
-        serverFieldErrors={create.error?.getFieldErrors()}
+        serverError={problem?.message}
+        serverFieldErrors={problem?.fields}
         onSubmit={submit}
-        onCancel={() => navigate('/gastos')}
+        onCancel={() => navigate(listPath)}
       />
     </div>
   )
@@ -76,6 +75,7 @@ export function NewExpensePage() {
 export function ExpenseDetailPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
+  const listPath = useListPath()
   const expense = useExpense(id)
   const me = useMe()
   const categories = useCategories()
@@ -83,12 +83,19 @@ export function ExpenseDetailPage() {
   const update = useUpdateExpense()
   const remove = useDeleteExpense()
   const [confirming, setConfirming] = useState(false)
+  const wasConfirming = useRef(false)
+
+  // Foco: al abrir la confirmación va a la opción segura (autoFocus); al cerrarla vuelve a "Eliminar".
+  useEffect(() => {
+    if (!confirming && wasConfirming.current) document.getElementById('delete-expense')?.focus()
+    wasConfirming.current = confirming
+  }, [confirming])
 
   if (expense.isError) {
     const notFound = isProblemError(expense.error) && expense.error.status === 404
     return (
       <div className="flex flex-col gap-3">
-        <BackLink />
+        <BackLink to={listPath} />
         <p role="alert" className="text-sm text-red-600">
           {notFound ? 'El gasto no existe o fue eliminado.' : 'No pudimos cargar el gasto.'}
         </p>
@@ -112,7 +119,7 @@ export function ExpenseDetailPage() {
   if (e.source === 'PURCHASE') {
     return (
       <div className="mx-auto flex max-w-xl flex-col gap-4">
-        <BackLink />
+        <BackLink to={listPath} />
         <h1 className="text-2xl font-semibold">Detalle de compra</h1>
         <p className="rounded-md bg-muted/40 p-3 text-sm">
           Este gasto proviene de una compra: es de solo lectura y no se puede editar ni eliminar.
@@ -135,28 +142,37 @@ export function ExpenseDetailPage() {
     )
   }
 
+  const updateProblem = update.error
+    ? mapExpenseProblem(update.error, 'No pudimos guardar los cambios. Intentá de nuevo.')
+    : null
+  const removeProblem = remove.error
+    ? mapExpenseProblem(remove.error, 'No pudimos eliminar el gasto. Intentá de nuevo.')
+    : null
+
   function submit(input: ExpenseInput) {
-    update.mutate({ id, input }, { onSuccess: () => navigate('/gastos') })
+    update.mutate({ id, input }, { onSuccess: () => navigate(listPath) })
+  }
+
+  function handleConfirmKeyDown(event: KeyboardEvent) {
+    if (event.key === 'Escape') setConfirming(false)
   }
 
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-4">
-      <BackLink />
+      <BackLink to={listPath} />
       <h1 className="text-2xl font-semibold">Editar gasto</h1>
       <ExpenseForm
         expense={e}
         currency={me.data.household.baseCurrency}
+        timeZone={me.data.household.timezone}
         categories={categories.data}
         members={members.data}
         submitLabel="Guardar cambios"
         submitting={update.isPending}
-        serverError={describeError(
-          update.error,
-          'No pudimos guardar los cambios. Intentá de nuevo.',
-        )}
-        serverFieldErrors={update.error?.getFieldErrors()}
+        serverError={updateProblem?.message}
+        serverFieldErrors={updateProblem?.fields}
         onSubmit={submit}
-        onCancel={() => navigate('/gastos')}
+        onCancel={() => navigate(listPath)}
       />
 
       <section aria-labelledby="delete-heading" className="flex flex-col gap-2 border-t pt-4">
@@ -164,7 +180,12 @@ export function ExpenseDetailPage() {
           Eliminar gasto
         </h2>
         {confirming ? (
-          <div role="alertdialog" aria-labelledby="delete-confirm" className="flex flex-col gap-2">
+          <div
+            role="alertdialog"
+            aria-labelledby="delete-confirm"
+            onKeyDown={handleConfirmKeyDown}
+            className="flex flex-col gap-2"
+          >
             <p id="delete-confirm" className="text-sm">
               ¿Eliminar este gasto? Esta acción no se puede deshacer.
             </p>
@@ -172,25 +193,25 @@ export function ExpenseDetailPage() {
               <Button
                 variant="outline"
                 disabled={remove.isPending}
-                onClick={() => remove.mutate(id, { onSuccess: () => navigate('/gastos') })}
+                onClick={() => remove.mutate(id, { onSuccess: () => navigate(listPath) })}
               >
                 Confirmar eliminación
               </Button>
-              <Button variant="ghost" onClick={() => setConfirming(false)}>
+              <Button autoFocus variant="ghost" onClick={() => setConfirming(false)}>
                 No eliminar
               </Button>
             </div>
           </div>
         ) : (
           <div>
-            <Button variant="outline" onClick={() => setConfirming(true)}>
+            <Button id="delete-expense" variant="outline" onClick={() => setConfirming(true)}>
               Eliminar
             </Button>
           </div>
         )}
-        {remove.error ? (
+        {removeProblem ? (
           <p role="alert" className="text-sm text-red-600">
-            {describeError(remove.error, 'No pudimos eliminar el gasto.')}
+            {removeProblem.message}
           </p>
         ) : null}
       </section>

@@ -10,41 +10,24 @@ export function minorUnitExponent(currency: string): number {
   return ZERO_DECIMAL_CURRENCIES.has(currency.toUpperCase()) ? 0 : 2
 }
 
+// Formato es-AR, sin ambigüedad: el punto SOLO agrupa miles (grupos de 3) y la coma es el
+// único separador decimal. Un punto como decimal ("12.50") se rechaza en vez de adivinar,
+// porque "12.500" (= 12500) y "12.50" (= 12,50) difieren ×1000 con un solo dígito.
+const AMOUNT_PATTERN = /^([1-9]\d{0,2}(?:\.\d{3})+|\d+)(?:,(\d+))?$/
+
 /**
  * Parsea un monto escrito por una persona (formato es-AR: "1.500,50") a unidades menores.
- * - La coma es el separador decimal; el punto agrupa miles ("1.500" = 1500).
- * - Un punto con 1–2 decimales y sin coma ("1500.5") se acepta como decimal.
- * Devuelve `null` si es inválido, negativo, tiene más decimales de los permitidos o no es seguro.
+ * Devuelve `null` si es inválido, negativo, usa punto decimal, tiene más decimales de los
+ * permitidos para la moneda o no es un entero seguro.
  */
 export function parseMoneyToMinor(input: string, currency = 'ARS'): number | null {
   const exponent = minorUnitExponent(currency)
-  let text = input.trim().replace(/\s+/g, '')
-  if (text === '') return null
-
-  let whole: string
-  let frac = ''
-  if (text.includes(',')) {
-    const [w = '', f = '', ...rest] = text.split(',')
-    if (rest.length > 0) return null
-    if (!/^\d{1,3}(\.\d{3})+$|^\d+$/.test(w)) return null
-    whole = w.replaceAll('.', '')
-    frac = f
-  } else if (/^\d{1,3}(\.\d{3})+$/.test(text)) {
-    whole = text.replaceAll('.', '')
-  } else if (/^\d+\.\d+$/.test(text)) {
-    const [w = '', f = ''] = text.split('.')
-    whole = w
-    frac = f
-  } else {
-    text = text.replace(/^\+/, '')
-    if (!/^\d+$/.test(text)) return null
-    whole = text
-  }
-
-  if (!/^\d*$/.test(frac) || frac.length > exponent) return null
-  if (whole === '') return null
-  const minorText = whole + frac.padEnd(exponent, '0')
-  const value = Number(minorText)
+  const match = AMOUNT_PATTERN.exec(input.trim().replace(/\s+/g, ''))
+  if (!match) return null
+  const whole = (match[1] ?? '').replaceAll('.', '')
+  const frac = match[2] ?? ''
+  if (frac.length > exponent) return null
+  const value = Number(whole + frac.padEnd(exponent, '0'))
   return Number.isSafeInteger(value) ? value : null
 }
 
@@ -52,8 +35,11 @@ function groupThousands(digits: string): string {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
 }
 
-/** Formatea unidades menores como "1.500,50" (sin moneda). */
+/** Formatea unidades menores como "1.500,50" (sin moneda). Lanza si no es un entero seguro. */
 export function formatMinor(amountMinor: number, currency = 'ARS'): string {
+  if (!Number.isSafeInteger(amountMinor)) {
+    throw new RangeError(`amountMinor must be a safe integer, got ${amountMinor}`)
+  }
   const exponent = minorUnitExponent(currency)
   const sign = amountMinor < 0 ? '-' : ''
   const digits = String(Math.abs(amountMinor)).padStart(exponent + 1, '0')

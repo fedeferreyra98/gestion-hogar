@@ -121,12 +121,28 @@ export function useMembers(
   })
 }
 
+/** Invalida todo lo de gastos (listas, resúmenes, otros detalles) salvo los detalles indicados. */
+function invalidateExpenses(
+  queryClient: ReturnType<typeof useQueryClient>,
+  exceptDetailId?: string,
+) {
+  return queryClient.invalidateQueries({
+    queryKey: expensesRootQueryKey,
+    predicate: (query) =>
+      !(
+        exceptDetailId !== undefined &&
+        query.queryKey[1] === 'detail' &&
+        query.queryKey[2] === exceptDetailId
+      ),
+  })
+}
+
 export function useCreateExpense(client?: Client<paths>) {
   const queryClient = useQueryClient()
   return useMutation<Expense, ProblemError, ExpenseInput>({
     mutationFn: (input) => createExpense(input, client),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: expensesRootQueryKey })
+      await invalidateExpenses(queryClient)
     },
   })
 }
@@ -135,8 +151,10 @@ export function useUpdateExpense(client?: Client<paths>) {
   const queryClient = useQueryClient()
   return useMutation<Expense, ProblemError, { id: string; input: ExpenseInput }>({
     mutationFn: ({ id, input }) => updateExpense(id, input, client),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: expensesRootQueryKey })
+    onSuccess: async (expense, { id }) => {
+      // El detalle ya viene en la respuesta: se actualiza sin refetchear.
+      queryClient.setQueryData(expenseQueryKey(id), expense)
+      await invalidateExpenses(queryClient, id)
     },
   })
 }
@@ -145,8 +163,11 @@ export function useDeleteExpense(client?: Client<paths>) {
   const queryClient = useQueryClient()
   return useMutation<void, ProblemError, string>({
     mutationFn: (id) => deleteExpense(id, client),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: expensesRootQueryKey })
+    onSuccess: async (_data, id) => {
+      // El detalle borrado no se refetchea (sería un 404 por borrado lógico): se cancela
+      // cualquier carga en curso y se refresca el resto (listas, resúmenes).
+      await queryClient.cancelQueries({ queryKey: expenseQueryKey(id) })
+      await invalidateExpenses(queryClient, id)
     },
   })
 }

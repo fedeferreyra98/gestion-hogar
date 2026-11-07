@@ -5,18 +5,28 @@ import { Button } from '@/components/ui/button'
 import { minorToInputValue, parseMoneyToMinor } from '@/lib/money'
 import { todayIso } from './dates'
 
+const FIELD_ORDER = ['description', 'amount', 'expenseDate', 'paidBy'] as const
+const FIELD_IDS = {
+  description: 'expense-description',
+  amount: 'expense-amount',
+  expenseDate: 'expense-date',
+  paidBy: 'expense-paidBy',
+}
+
+const REQUIRED = new Set(['description', 'amount', 'expenseDate', 'paidBy'])
 const inputClass = 'h-10 rounded-md border border-border bg-background px-3 text-sm'
 
 interface Props {
   expense?: Expense
   currency: string
+  timeZone?: string
   categories: Category[]
   members: Member[]
   defaultPaidBy?: string
   submitLabel: string
   submitting: boolean
   serverError?: string | null
-  serverFieldErrors?: Record<string, string>
+  serverFieldErrors?: Partial<Record<string, string>>
   onSubmit: (input: ExpenseInput) => void
   onCancel: () => void
 }
@@ -24,6 +34,7 @@ interface Props {
 export function ExpenseForm({
   expense,
   currency,
+  timeZone,
   categories,
   members,
   defaultPaidBy,
@@ -39,7 +50,7 @@ export function ExpenseForm({
   const [amount, setAmount] = useState(
     expense ? minorToInputValue(expense.amount.amountMinor, effectiveCurrency) : '',
   )
-  const [date, setDate] = useState(expense?.expenseDate ?? todayIso())
+  const [date, setDate] = useState(expense?.expenseDate ?? todayIso(timeZone))
   const [categoryId, setCategoryId] = useState(expense?.categoryId ?? '')
   const [paidBy, setPaidBy] = useState(expense?.paidBy ?? defaultPaidBy ?? '')
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -54,10 +65,12 @@ export function ExpenseForm({
     else if (trimmed.length > 255) next.description = 'Máximo 255 caracteres.'
     const minor = parseMoneyToMinor(amount, effectiveCurrency)
     if (minor === null || minor <= 0)
-      next.amount = 'Ingresá un monto válido mayor a cero (ej. 1.500,50).'
+      next.amount = 'Ingresá un monto mayor a cero con coma decimal (ej. 1.500,50).'
     if (!date) next.expenseDate = 'Elegí una fecha.'
     if (!paidBy) next.paidBy = 'Elegí quién pagó.'
     setErrors(next)
+    const first = FIELD_ORDER.find((f) => next[f])
+    if (first) document.getElementById(FIELD_IDS[first])?.focus()
     if (Object.keys(next).length > 0 || minor === null) return
     onSubmit({
       description: trimmed,
@@ -70,12 +83,13 @@ export function ExpenseForm({
 
   const err = (name: string) =>
     fieldErrors[name] ? (
-      <p id={`expense-${name}-error`} className="text-sm text-red-600">
+      <p id={`expense-${name}-error`} role="alert" className="text-sm text-red-600">
         {fieldErrors[name]}
       </p>
     ) : null
   const aria = (name: string) => ({
     'aria-invalid': fieldErrors[name] ? true : undefined,
+    'aria-required': REQUIRED.has(name) ? true : undefined,
     'aria-describedby': fieldErrors[name] ? `expense-${name}-error` : undefined,
   })
 

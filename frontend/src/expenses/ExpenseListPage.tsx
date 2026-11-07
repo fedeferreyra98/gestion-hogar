@@ -1,31 +1,37 @@
 import { keepPreviousData } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useCategories } from '@/api/hooks/useCatalog'
-import { useExpenses, useMembers, type ExpenseSource } from '@/api/hooks/useExpenses'
+import { useExpenses, useMembers } from '@/api/hooks/useExpenses'
 import { useMe } from '@/api/hooks/useMe'
 import { Button } from '@/components/ui/button'
 import { formatMinor, formatMoney } from '@/lib/money'
 import { useDebouncedValue } from '@/lib/useDebouncedValue'
 import { formatDate } from './dates'
+import { canonicalSearch, FILTER_KEYS, parseFilters } from './filters'
 
 const PAGE_SIZE = 20
-const FILTER_KEYS = ['from', 'to', 'categoryId', 'paidBy', 'source', 'q'] as const
 const inputClass = 'h-10 rounded-md border border-border bg-background px-3 text-sm'
 
 export function ExpenseListPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const get = (key: string) => searchParams.get(key) ?? ''
-  const from = get('from')
-  const to = get('to')
-  const categoryId = get('categoryId')
-  const paidBy = get('paidBy')
-  const source = get('source')
-  const qParam = get('q')
-  const pageParam = Number.parseInt(get('page'), 10)
-  const page = Number.isFinite(pageParam) && pageParam >= 1 ? pageParam - 1 : 0 // URL 1-based
+  const location = useLocation()
+  const searchKey = searchParams.toString()
+  // Parámetros inválidos de la URL (link viejo o editado a mano) se descartan.
+  const filters = useMemo(() => parseFilters(new URLSearchParams(searchKey)), [searchKey])
+  const { from, to, categoryId, paidBy, source, q: qParam, page } = filters
 
-  function updateParams(changes: Record<string, string>, resetPage = true) {
+  // Normaliza la URL si traía basura (reemplaza la entrada del historial).
+  useEffect(() => {
+    const canonical = canonicalSearch(new URLSearchParams(searchKey), filters)
+    if (canonical !== searchKey) setSearchParams(new URLSearchParams(canonical), { replace: true })
+  }, [searchKey, filters, setSearchParams])
+
+  function updateParams(
+    changes: Record<string, string>,
+    options: { resetPage?: boolean; push?: boolean } = {},
+  ) {
+    const { resetPage = true, push = false } = options
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
@@ -36,7 +42,7 @@ export function ExpenseListPage() {
         if (resetPage) next.delete('page')
         return next
       },
-      { replace: true },
+      { replace: !push },
     )
   }
 
@@ -44,40 +50,54 @@ export function ExpenseListPage() {
   const [qInput, setQInput] = useState(qParam)
   const debouncedQ = useDebouncedValue(qInput.trim(), 300)
   useEffect(() => {
-    if (debouncedQ !== qParam) {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev)
-          if (debouncedQ) next.set('q', debouncedQ)
-          else next.delete('q')
-          next.delete('page')
-          return next
-        },
-        { replace: true },
-      )
-    }
+    if (debouncedQ !== qParam) updateParams({ q: debouncedQ })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQ])
+  // Si la URL cambia desde afuera (menú, atrás/adelante), la caja se resincroniza.
+  const [seenQParam, setSeenQParam] = useState(qParam)
+  if (seenQParam !== qParam) {
+    setSeenQParam(qParam)
+    if (qInput.trim() !== qParam) setQInput(qParam)
+  }
+
+  const invalidRange = from !== '' && to !== '' && from > to
 
   const me = useMe()
   const categories = useCategories()
   const members = useMembers()
-  const { data, isLoading, isError, isFetching, refetch } = useExpenses(
+  const { data, isLoading, isError, isFetching, isPlaceholderData, refetch } = useExpenses(
     {
       from: from || undefined,
       to: to || undefined,
       categoryId: categoryId || undefined,
       paidBy: paidBy || undefined,
-      source: (source as ExpenseSource) || undefined,
+      source: source || undefined,
       q: qParam || undefined,
       page,
       size: PAGE_SIZE,
     },
-    { placeholderData: keepPreviousData },
+    { placeholderData: keepPreviousData, enabled: !invalidRange },
   )
 
-  const hasFilters = FILTER_KEYS.some((k) => get(k) !== '')
-  const invalidRange = from !== '' && to !== '' && from > to
+  // Página fuera de rango (link viejo, o se borró el último gasto de la última página):
+  // se salta a la última página válida, como en el catálogo.
+  const outOfRange =
+    !invalidRange &&
+    data !== undefined &&
+    data.page === page &&
+    page > 0 &&
+    data.content.length === 0
+  useEffect(() => {
+    if (outOfRange && data) {
+      updateParams(
+        { page: data.totalPages > 1 ? String(data.totalPages) : '' },
+        { resetPage: false },
+      )
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outOfRange, data?.totalPages])
+
+  const hasFilters = FILTER_KEYS.some((k) => filters[k] !== '')
   const baseCurrency = me.data?.household.baseCurrency ?? 'ARS'
   const categoryName = (id?: string | null) =>
     categories.data?.find((c) => c.id === id)?.name ?? 'Sin categoría'
@@ -96,7 +116,9 @@ export function ExpenseListPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-semibold">Gastos</h1>
         <Button asChild>
-          <Link to="/gastos/nuevo">Nuevo gasto</Link>
+          <Link to="/gastos/nuevo" state={{ listSearch: location.search }}>
+            Nuevo gasto
+          </Link>
         </Button>
       </div>
 
@@ -127,6 +149,8 @@ export function ExpenseListPage() {
             type="date"
             className={inputClass}
             value={from}
+            aria-invalid={invalidRange ? true : undefined}
+            aria-describedby={invalidRange ? 'f-range-error' : undefined}
             onChange={(e) => updateParams({ from: e.target.value })}
           />
         </div>
@@ -139,6 +163,8 @@ export function ExpenseListPage() {
             type="date"
             className={inputClass}
             value={to}
+            aria-invalid={invalidRange ? true : undefined}
+            aria-describedby={invalidRange ? 'f-range-error' : undefined}
             onChange={(e) => updateParams({ to: e.target.value })}
           />
         </div>
@@ -153,6 +179,9 @@ export function ExpenseListPage() {
             onChange={(e) => updateParams({ categoryId: e.target.value })}
           >
             <option value="">Todas</option>
+            {categories.data && categoryId && !categories.data.some((c) => c.id === categoryId) ? (
+              <option value={categoryId}>Categoría desconocida</option>
+            ) : null}
             {(categories.data ?? []).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -171,6 +200,9 @@ export function ExpenseListPage() {
             onChange={(e) => updateParams({ paidBy: e.target.value })}
           >
             <option value="">Todos</option>
+            {members.data && paidBy && !members.data.some((m) => m.id === paidBy) ? (
+              <option value={paidBy}>Miembro desconocido</option>
+            ) : null}
             {(members.data ?? []).map((m) => (
               <option key={m.id} value={m.id}>
                 {m.displayName}
@@ -202,19 +234,19 @@ export function ExpenseListPage() {
       </form>
 
       {invalidRange ? (
-        <p role="alert" className="text-sm text-red-600">
+        <p id="f-range-error" role="alert" className="text-sm text-red-600">
           La fecha “Desde” no puede ser posterior a “Hasta”.
         </p>
       ) : null}
 
-      {isError ? (
+      {invalidRange ? null : isError ? (
         <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-red-600">
           <span>No pudimos cargar los gastos.</span>
           <Button size="sm" variant="outline" onClick={() => void refetch()}>
             Reintentar
           </Button>
         </div>
-      ) : isLoading ? (
+      ) : isLoading || outOfRange || (isPlaceholderData && data?.content.length === 0) ? (
         <p className="text-sm text-muted-foreground">Cargando gastos…</p>
       ) : (
         <>
@@ -253,6 +285,7 @@ export function ExpenseListPage() {
                 <li key={e.id}>
                   <Link
                     to={`/gastos/${e.id}`}
+                    state={{ listSearch: location.search }}
                     className="flex flex-col gap-1 p-3 hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring sm:flex-row sm:items-center sm:justify-between"
                   >
                     <span className="flex flex-col">
@@ -279,7 +312,9 @@ export function ExpenseListPage() {
               <Button
                 variant="outline"
                 disabled={page <= 0}
-                onClick={() => updateParams({ page: String(page) }, false)}
+                onClick={() =>
+                  updateParams({ page: String(page) }, { resetPage: false, push: true })
+                }
               >
                 Anterior
               </Button>
@@ -289,7 +324,9 @@ export function ExpenseListPage() {
               <Button
                 variant="outline"
                 disabled={page + 1 >= totalPages}
-                onClick={() => updateParams({ page: String(page + 2) }, false)}
+                onClick={() =>
+                  updateParams({ page: String(page + 2) }, { resetPage: false, push: true })
+                }
               >
                 Siguiente
               </Button>
