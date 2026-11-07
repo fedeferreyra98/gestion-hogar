@@ -253,7 +253,10 @@ export interface paths {
       path?: never
       cookie?: never
     }
-    /** Histórico de precios unitarios de un producto */
+    /**
+     * Histórico de precios unitarios de un producto
+     * @description Un punto por línea de compra del producto (orden cronológico ascendente), con la moneda de la compra: no mezcla monedas, cada punto lleva la suya. Cada punto lleva la `unit` de la línea (el precio es por esa unidad; no se convierte KG↔G): usar `unit` para obtener una serie homogénea. `from > to` o `unit` inválida → 400; producto de otro hogar → 404.
+     */
     get: operations['getPriceHistory']
     put?: never
     post?: never
@@ -449,7 +452,10 @@ export interface paths {
       path?: never
       cookie?: never
     }
-    /** Resumen de gastos agrupado (UC-23) */
+    /**
+     * Resumen de gastos agrupado (UC-23)
+     * @description Una fila por (grupo, moneda): nunca mezcla monedas. Excluye gastos borrados. `month` → key `YYYY-MM`; `category` → key = id de la categoría; los gastos sin categoría (todos los de compras, que no tienen categoría propia) van a la fila `uncategorized` / "Sin categoría"; `store` → solo gastos de compras (`source=PURCHASE`; Σ por comercio ≤ Σ por mes porque los manuales no tienen comercio), key = comercio en minúsculas (key vacía `""` y label "Sin comercio" si la compra no tiene comercio). `month` no rellena los meses sin gastos. `from`/`to` inclusivos sobre `expenseDate`; `from > to` o `groupBy` inválido → 400.
+     */
     get: operations['getExpenseSummary']
     put?: never
     post?: never
@@ -975,6 +981,7 @@ export interface components {
       date: string
       store?: string
       unitPrice: components['schemas']['Money']
+      unit: components['schemas']['Unit']
     }
     /** @enum {string} */
     StockStatus: 'ACTIVE' | 'CONSUMED' | 'DISCARDED'
@@ -1594,6 +1601,8 @@ export interface operations {
         from?: components['parameters']['From']
         /** @description Fecha hasta (inclusive) */
         to?: components['parameters']['To']
+        /** @description Filtra los puntos por unidad de la línea de compra */
+        unit?: components['schemas']['Unit']
       }
       header?: never
       path: {
@@ -1612,6 +1621,7 @@ export interface operations {
           'application/json': components['schemas']['PricePoint'][]
         }
       }
+      400: components['responses']['ValidationError']
       401: components['responses']['Unauthorized']
       404: components['responses']['NotFound']
     }

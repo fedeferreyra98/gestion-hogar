@@ -360,10 +360,20 @@ paths:
       tags: [Expenses]
       operationId: getPriceHistory
       summary: Histórico de precios unitarios de un producto
+      description: >-
+        Un punto por línea de compra del producto (orden cronológico ascendente), con la
+        moneda de la compra: no mezcla monedas, cada punto lleva la suya.
+        Cada punto lleva la `unit` de la línea (el precio es por esa unidad; no se convierte KG↔G):
+        usar `unit` para obtener una serie homogénea. `from > to` o `unit` inválida → 400;
+        producto de otro hogar → 404.
       parameters:
         - $ref: '#/components/parameters/IdPath'
         - $ref: '#/components/parameters/From'
         - $ref: '#/components/parameters/To'
+        - name: unit
+          in: query
+          description: Filtra los puntos por unidad de la línea de compra
+          schema: { $ref: '#/components/schemas/Unit' }
       responses:
         '200':
           description: Puntos de precio
@@ -372,6 +382,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/PricePoint' }
+        '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -703,6 +714,14 @@ paths:
       tags: [Expenses]
       operationId: getExpenseSummary
       summary: Resumen de gastos agrupado (UC-23)
+      description: >-
+        Una fila por (grupo, moneda): nunca mezcla monedas. Excluye gastos borrados.
+        `month` → key `YYYY-MM`; `category` → key = id de la categoría; los gastos sin categoría (todos los de
+        compras, que no tienen categoría propia) van a la fila `uncategorized` / "Sin categoría";
+        `store` → solo gastos de compras (`source=PURCHASE`; Σ por comercio ≤ Σ por mes porque los
+        manuales no tienen comercio), key = comercio en minúsculas (key vacía `""` y label "Sin comercio"
+        si la compra no tiene comercio). `month` no rellena los meses sin gastos. `from`/`to` inclusivos sobre `expenseDate`;
+        `from > to` o `groupBy` inválido → 400.
       parameters:
         - $ref: '#/components/parameters/From'
         - $ref: '#/components/parameters/To'
@@ -1448,11 +1467,12 @@ components:
         total: { $ref: '#/components/schemas/Money' }
     PricePoint:
       type: object
-      required: [date, unitPrice]
+      required: [date, unitPrice, unit]
       properties:
         date: { type: string, format: date }
         store: { type: string }
         unitPrice: { $ref: '#/components/schemas/Money' }
+        unit: { $ref: '#/components/schemas/Unit' }
 
     # ---- Stock ----
     StockStatus:
