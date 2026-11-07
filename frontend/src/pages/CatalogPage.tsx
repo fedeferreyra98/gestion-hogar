@@ -1,9 +1,7 @@
+import { keepPreviousData } from '@tanstack/react-query'
 import { useMemo, useState, type FormEvent } from 'react'
 import { isProblemError } from '@/api/errors'
 import {
-  UNITS,
-  UNIT_LABELS,
-  UNIT_SHORT_LABELS,
   useArchiveProduct,
   useCategories,
   useCreateCategory,
@@ -15,11 +13,17 @@ import {
   useUpdateProduct,
 } from '@/api/hooks/useCatalog'
 import type { Category, Product, Unit } from '@/api/types'
+import { UNITS, UNIT_LABELS, UNIT_SHORT_LABELS } from '@/catalog/units'
 import { Button } from '@/components/ui/button'
 import { useDebouncedValue } from '@/lib/useDebouncedValue'
 
 export function CatalogPage() {
-  const { data: categories = [], isLoading: loadingCategories } = useCategories()
+  const {
+    data: categories = [],
+    isLoading: loadingCategories,
+    isError: categoriesError,
+    refetch: refetchCategories,
+  } = useCategories()
   const createCategoryMutation = useCreateCategory()
   const updateCategoryMutation = useUpdateCategory()
   const deleteCategoryMutation = useDeleteCategory()
@@ -35,13 +39,21 @@ export function CatalogPage() {
   const [includeArchived, setIncludeArchived] = useState(false)
   const [page, setPage] = useState(0)
 
-  const { data: productsPage, isLoading: loadingProducts } = useProducts({
-    q: debouncedSearch || undefined,
-    categoryId: filterCategoryId || undefined,
-    includeArchived,
-    page,
-    size: 20,
-  })
+  const {
+    data: productsPage,
+    isLoading: loadingProducts,
+    isError: productsError,
+    refetch: refetchProducts,
+  } = useProducts(
+    {
+      q: debouncedSearch || undefined,
+      categoryId: filterCategoryId || undefined,
+      includeArchived,
+      page,
+      size: 20,
+    },
+    { placeholderData: keepPreviousData },
+  )
 
   const createProductMutation = useCreateProduct()
   const updateProductMutation = useUpdateProduct()
@@ -114,7 +126,9 @@ export function CatalogPage() {
       if (productCategoryId === id) setProductCategoryId('')
     } catch (err) {
       if (isProblemError(err) && err.status === 409) {
-        setCategoryError('No se puede eliminar una categoría que tiene productos asociados.')
+        setCategoryError(
+          'No se puede eliminar una categoría que tiene productos o gastos asociados.',
+        )
       } else {
         setCategoryError('No pudimos eliminar la categoría. Intentá de nuevo.')
       }
@@ -198,6 +212,13 @@ export function CatalogPage() {
   const products = productsPage?.content ?? []
   const totalPages = productsPage?.totalPages ?? 0
 
+  // If the current page falls out of range (e.g. the last item was archived), go back.
+  if (productsPage && !productsError && totalPages > 0 && page > totalPages - 1) {
+    setPage(totalPages - 1)
+  }
+
+  const togglingArchive = archiveProductMutation.isPending || unarchiveProductMutation.isPending
+
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-8">
       <h1 className="text-2xl font-semibold">Catálogo</h1>
@@ -242,6 +263,18 @@ export function CatalogPage() {
 
         {loadingCategories ? (
           <p className="text-sm text-muted-foreground">Cargando categorías…</p>
+        ) : categoriesError ? (
+          <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-red-600">
+            <span>No pudimos cargar las categorías.</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void refetchCategories()}
+            >
+              Reintentar
+            </Button>
+          </div>
         ) : categories.length === 0 ? (
           <p className="text-sm text-muted-foreground">Aún no hay categorías creadas.</p>
         ) : (
@@ -251,7 +284,7 @@ export function CatalogPage() {
                 {editingCategoryId === cat.id ? (
                   <form
                     onSubmit={(e) => void handleUpdateCategory(e, cat.id)}
-                    className="flex flex-1 items-center gap-2"
+                    className="flex flex-1 flex-wrap items-center gap-2"
                   >
                     <input
                       type="text"
@@ -259,7 +292,7 @@ export function CatalogPage() {
                       aria-label={`Nuevo nombre para ${cat.name}`}
                       value={editingCategoryName}
                       onChange={(e) => setEditingCategoryName(e.target.value)}
-                      className="h-9 flex-1 rounded-md border border-border bg-background px-2 text-sm"
+                      className="h-9 min-w-40 flex-1 rounded-md border border-border bg-background px-2 text-sm"
                     />
                     <Button type="submit" size="sm" disabled={updateCategoryMutation.isPending}>
                       Guardar categoría
@@ -465,6 +498,18 @@ export function CatalogPage() {
         {/* Lista de productos */}
         {loadingProducts ? (
           <p className="text-sm text-muted-foreground">Cargando productos…</p>
+        ) : productsError ? (
+          <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-red-600">
+            <span>No pudimos cargar los productos.</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void refetchProducts()}
+            >
+              Reintentar
+            </Button>
+          </div>
         ) : products.length === 0 ? (
           <p className="text-sm text-muted-foreground">No se encontraron productos.</p>
         ) : (
@@ -516,6 +561,7 @@ export function CatalogPage() {
                           ? `Desarchivar producto ${product.name}`
                           : `Archivar producto ${product.name}`
                       }
+                      disabled={togglingArchive}
                       onClick={() => void handleToggleArchive(product)}
                     >
                       {product.archived ? 'Desarchivar' : 'Archivar'}

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { MemoryRouter } from 'react-router-dom'
@@ -20,6 +20,15 @@ const conflictProblem = (detail = 'Conflict') => ({
   code: 'CONFLICT',
   detail,
 })
+
+const LECHE: Product = {
+  id: '11111111-1111-4111-8111-111111111111',
+  name: 'Leche entera',
+  categoryId: null,
+  defaultUnit: 'L',
+  defaultShelfLifeDays: 7,
+  archived: false,
+}
 
 function makePage(content: Product[]): ProductPage {
   return {
@@ -64,41 +73,183 @@ afterEach(() => {
 })
 
 describe('ProductPicker', () => {
-  it('busca productos con debounce y permite seleccionar uno existente', async () => {
-    const queriesSeen: string[] = []
-    const leche: Product = {
-      id: '11111111-1111-4111-8111-111111111111',
-      name: 'Leche entera',
-      categoryId: null,
-      defaultUnit: 'L',
-      defaultShelfLifeDays: 7,
-      archived: false,
+  it('busca productos con debounce (timers falsos) y permite seleccionar uno existente', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const queriesSeen: string[] = []
+      server.use(
+        http.get(`${API}/products`, ({ request }) => {
+          const q = new URL(request.url).searchParams.get('q')
+          if (q) queriesSeen.push(q)
+          const matches = q && 'leche entera'.includes(q.toLowerCase()) ? [LECHE] : []
+          return HttpResponse.json(makePage(matches))
+        }),
+      )
+
+      const onSelect = vi.fn()
+      renderWithQuery(<ProductPicker onSelect={onSelect} />)
+
+      const input = screen.getByRole('combobox', { name: 'Producto' })
+      // user-event/RTL helpers wait on real timers, so drive the input with fireEvent here.
+      fireEvent.focus(input)
+      for (const text of ['l', 'le', 'lec', 'lech', 'leche']) {
+        fireEvent.change(input, { target: { value: text } })
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(50)
+        })
+      }
+
+      // 299 ms since the last key (debounce is 300): nothing queried yet
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(249)
+      })
+      expect(queriesSeen).toEqual([])
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1)
+      })
+      // Let the request and React Query flush (still with fake timers).
+      for (let i = 0; i < 5; i++) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(20)
+        })
+      }
+      const option = screen.getByRole('option', { name: /Leche entera/i })
+      expect(queriesSeen).toEqual(['leche'])
+
+      fireEvent.click(option)
+      expect(onSelect).toHaveBeenCalledWith(LECHE)
+    } finally {
+      vi.useRealTimers()
     }
+  })
 
-    server.use(
-      http.get(`${API}/products`, ({ request }) => {
-        const q = new URL(request.url).searchParams.get('q')
-        if (q) queriesSeen.push(q)
-        const matches = q && 'leche entera'.includes(q.toLowerCase()) ? [leche] : []
-        return HttpResponse.json(makePage(matches))
-      }),
-    )
-
-    const onSelect = vi.fn()
-    renderWithQuery(<ProductPicker onSelect={onSelect} debounceMs={80} />)
+  it('no ofrece Crear mientras corre el debounce o la búsqueda del texto actual', async () => {
+    server.use(http.get(`${API}/products`, () => HttpResponse.json(makePage([LECHE]))))
+    renderWithQuery(<ProductPicker onSelect={vi.fn()} debounceMs={50} />)
 
     const input = screen.getByRole('combobox', { name: 'Producto' })
-    await userEvent.type(input, 'leche')
+    await userEvent.type(input, 'Leche entera')
+    expect(screen.queryByRole('option', { name: /Crear/ })).not.toBeInTheDocument()
 
-    // Inmediatamente tras tipear 5 letras rápido, el debounce aún no disparó consultas por cada tecla
-    expect(queriesSeen).toEqual([])
+    expect(await screen.findByRole('option', { name: /Leche entera/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /Crear/ })).not.toBeInTheDocument()
+  })
 
-    const option = await screen.findByRole('option', { name: /Leche entera/i })
-    // Solo se consultó una vez con el término completo 'leche', no por cada tecla intermedia
-    expect(queriesSeen).toEqual(['leche'])
+  it('muestra un producto archivado como no disponible, sin ofrecer Crear ni permitir elegirlo', async () => {
+    const archived: Product = { ...LECHE, archived: true }
+    let includeArchivedSent: string | null = null
+    server.use(
+      http.get(`${API}/products`, ({ request }) => {
+        includeArchivedSent = new URL(request.url).searchParams.get('includeArchived')
+        return HttpResponse.json(makePage([archived]))
+      }),
+    )
+    const onSelect = vi.fn()
+    renderWithQuery(<ProductPicker onSelect={onSelect} debounceMs={10} />)
+
+    const input = screen.getByRole('combobox', { name: 'Producto' })
+    await userEvent.type(input, 'Leche entera')
+
+    const option = await screen.findByRole('option', { name: /Leche entera/ })
+    expect(option).toHaveAttribute('aria-disabled', 'true')
+    expect(option).toHaveTextContent('No disponible (archivado)')
+    expect(includeArchivedSent).toBe('true')
+    expect(screen.queryByRole('option', { name: /Crear/ })).not.toBeInTheDocument()
 
     await userEvent.click(option)
-    expect(onSelect).toHaveBeenCalledWith(leche)
+    await userEvent.keyboard('{ArrowDown}{Enter}')
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('se puede usar con teclado: flechas, Enter y aria-activedescendant; el listbox solo tiene options', async () => {
+    const arroz: Product = { ...LECHE, id: 'a1111111-1111-4111-8111-111111111111', name: 'Arroz' }
+    server.use(http.get(`${API}/products`, () => HttpResponse.json(makePage([LECHE, arroz]))))
+    const onSelect = vi.fn()
+    renderWithQuery(<ProductPicker onSelect={onSelect} debounceMs={10} />)
+
+    const input = screen.getByRole('combobox', { name: 'Producto' })
+    await userEvent.click(input)
+    await userEvent.type(input, 'a')
+    const listbox = await screen.findByRole('listbox')
+    // Wait until the results for the typed text settle (the Create option only shows then)
+    await screen.findByRole('option', { name: 'Crear "a"' })
+    expect(within(listbox).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(listbox).queryByRole('combobox')).not.toBeInTheDocument()
+
+    await userEvent.keyboard('{ArrowDown}')
+    const first = screen.getByRole('option', { name: /Leche entera/ })
+    expect(input).toHaveAttribute('aria-activedescendant', first.id)
+
+    await userEvent.keyboard('{ArrowDown}')
+    const second = screen.getByRole('option', { name: /Arroz/ })
+    expect(input).toHaveAttribute('aria-activedescendant', second.id)
+
+    // With "a" nothing matches exactly, so the "Crear" option is the third entry; ArrowUp x2 wraps to it
+    await userEvent.keyboard('{ArrowUp}{ArrowUp}')
+    const create = screen.getByRole('option', { name: 'Crear "a"' })
+    expect(input).toHaveAttribute('aria-activedescendant', create.id)
+    await userEvent.keyboard('{ArrowUp}')
+    expect(input).toHaveAttribute('aria-activedescendant', second.id)
+
+    await userEvent.keyboard('{Enter}')
+    expect(onSelect).toHaveBeenCalledWith(arroz)
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
+
+  it('cierra el desplegable con Escape y con blur', async () => {
+    server.use(http.get(`${API}/products`, () => HttpResponse.json(makePage([LECHE]))))
+    renderWithQuery(
+      <>
+        <ProductPicker onSelect={vi.fn()} debounceMs={10} />
+        <button type="button">Otro</button>
+      </>,
+    )
+    const input = screen.getByRole('combobox', { name: 'Producto' })
+    await userEvent.type(input, 'lec')
+    expect(await screen.findByRole('listbox')).toBeInTheDocument()
+
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(input).toHaveAttribute('aria-expanded', 'false')
+
+    await userEvent.type(input, 'e')
+    expect(await screen.findByRole('listbox')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Otro' }))
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
+
+  it('sincroniza el texto cuando el padre cambia value', async () => {
+    server.use(http.get(`${API}/products`, () => HttpResponse.json(makePage([]))))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const ui = (v: Product | null) => (
+      <QueryClientProvider client={queryClient}>
+        <ProductPicker value={v} onSelect={vi.fn()} />
+      </QueryClientProvider>
+    )
+    const { rerender } = render(ui(LECHE))
+    const input = screen.getByRole('combobox', { name: 'Producto' })
+    expect(input).toHaveValue('Leche entera')
+    rerender(ui(null))
+    expect(input).toHaveValue('')
+  })
+
+  it('muestra un error con reintento si falla la búsqueda, sin ofrecer Crear', async () => {
+    let fail = true
+    server.use(
+      http.get(`${API}/products`, () =>
+        fail ? new HttpResponse(null, { status: 500 }) : HttpResponse.json(makePage([LECHE])),
+      ),
+    )
+    renderWithQuery(<ProductPicker onSelect={vi.fn()} debounceMs={10} />)
+    await userEvent.type(screen.getByRole('combobox', { name: 'Producto' }), 'Leche')
+
+    expect(await screen.findByText('No pudimos buscar productos.')).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /Crear/ })).not.toBeInTheDocument()
+
+    fail = false
+    await userEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
+    expect(await screen.findByRole('option', { name: /Leche entera/ })).toBeInTheDocument()
   })
 
   it('permite crear un producto al vuelo cuando no existe coincidencia exacta', async () => {
@@ -129,7 +280,7 @@ describe('ProductPicker', () => {
     const unitSelect = await screen.findByLabelText('Unidad del nuevo producto')
     await userEvent.selectOptions(unitSelect, 'KG')
 
-    const createBtn = screen.getByRole('button', { name: 'Crear "Yerba mate"' })
+    const createBtn = screen.getByRole('option', { name: 'Crear "Yerba mate"' })
     await userEvent.click(createBtn)
 
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith(created))
@@ -153,7 +304,7 @@ describe('ProductPicker', () => {
 
     const input = screen.getByRole('combobox', { name: 'Producto' })
     await userEvent.type(input, 'Arroz')
-    await userEvent.click(await screen.findByRole('button', { name: 'Crear "Arroz"' }))
+    await userEvent.click(await screen.findByRole('option', { name: 'Crear "Arroz"' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Ya existe un producto con ese nombre.',
@@ -246,7 +397,7 @@ describe('CatalogPage — ABM de categorías y productos', () => {
     // Intentar eliminar categoría con productos (Lácteos) -> 409
     await userEvent.click(screen.getByRole('button', { name: 'Eliminar categoría Lácteos' }))
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'No se puede eliminar una categoría que tiene productos asociados.',
+      'No se puede eliminar una categoría que tiene productos o gastos asociados.',
     )
     expect(within(categoriesSection).getByText('Lácteos')).toBeInTheDocument()
 
@@ -394,5 +545,96 @@ describe('CatalogPage — ABM de categorías y productos', () => {
       screen.getByRole('button', { name: 'Desarchivar producto Yogur natural' }),
     )
     await waitFor(() => expect(screen.queryByText('Archivado')).not.toBeInTheDocument())
+  })
+  it('muestra un error con reintento (no una lista vacía) si fallan las queries', async () => {
+    let fail = true
+    server.use(
+      http.get(`${API}/categories`, () =>
+        fail ? new HttpResponse(null, { status: 500 }) : HttpResponse.json([]),
+      ),
+      http.get(`${API}/products`, () =>
+        fail ? new HttpResponse(null, { status: 500 }) : HttpResponse.json(makePage([LECHE])),
+      ),
+    )
+    renderCatalogRoute()
+
+    expect(await screen.findByText('No pudimos cargar las categorías.')).toBeInTheDocument()
+    expect(await screen.findByText('No pudimos cargar los productos.')).toBeInTheDocument()
+    expect(screen.queryByText('Aún no hay categorías creadas.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No se encontraron productos.')).not.toBeInTheDocument()
+
+    fail = false
+    for (const btn of screen.getAllByRole('button', { name: 'Reintentar' })) {
+      await userEvent.click(btn)
+    }
+    expect(await screen.findByText('Leche entera')).toBeInTheDocument()
+    expect(await screen.findByText('Aún no hay categorías creadas.')).toBeInTheDocument()
+  })
+
+  it('busca con debounce y pagina manteniendo la lista y los controles visibles', async () => {
+    const seen: string[] = []
+    server.use(
+      http.get(`${API}/categories`, () => HttpResponse.json([])),
+      http.get(`${API}/products`, async ({ request }) => {
+        const url = new URL(request.url)
+        const page = Number(url.searchParams.get('page') ?? '0')
+        const q = url.searchParams.get('q')
+        seen.push(`${q ?? ''}|${page}`)
+        if (page === 1) await new Promise((r) => setTimeout(r, 50))
+        const content = [{ ...LECHE, name: q ? `Resultado ${q}` : `Producto página ${page}` }]
+        return HttpResponse.json({ content, page, size: 20, totalElements: 40, totalPages: 2 })
+      }),
+    )
+    renderCatalogRoute()
+
+    expect(await screen.findByText('Producto página 0')).toBeInTheDocument()
+    expect(screen.getByText('Página 1 de 2')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+    // Mientras carga la página 2 se conserva la lista anterior y la paginación
+    expect(screen.getByText('Producto página 0')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Siguiente' })).toBeInTheDocument()
+    expect(await screen.findByText('Producto página 1')).toBeInTheDocument()
+    expect(screen.getByText('Página 2 de 2')).toBeInTheDocument()
+
+    await userEvent.type(screen.getByLabelText('Buscar productos'), 'pan')
+    expect(await screen.findByText('Resultado pan')).toBeInTheDocument()
+    expect(seen.filter((s) => s.startsWith('p'))).toEqual(['pan|0'])
+  })
+
+  it('vuelve a la última página válida si la página actual queda fuera de rango', async () => {
+    const pages: number[] = []
+    server.use(
+      http.get(`${API}/categories`, () => HttpResponse.json([])),
+      http.get(`${API}/products`, ({ request }) => {
+        const page = Number(new URL(request.url).searchParams.get('page') ?? '0')
+        pages.push(page)
+        // La página 1 ya no existe (p. ej. se archivó su único producto): el total baja a 1.
+        if (page >= 1) {
+          return HttpResponse.json({
+            content: [],
+            page,
+            size: 20,
+            totalElements: 20,
+            totalPages: 1,
+          })
+        }
+        return HttpResponse.json({
+          content: [{ ...LECHE, name: 'Producto página 0' }],
+          page,
+          size: 20,
+          totalElements: 40,
+          totalPages: 2,
+        })
+      }),
+    )
+    renderCatalogRoute()
+    expect(await screen.findByText('Producto página 0')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+
+    await waitFor(() => expect(pages.slice(-1)).toEqual([0]))
+    expect(pages).toContain(1)
+    expect(await screen.findByText('Producto página 0')).toBeInTheDocument()
+    expect(screen.queryByText('No se encontraron productos.')).not.toBeInTheDocument()
   })
 })
