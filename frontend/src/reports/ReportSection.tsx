@@ -32,7 +32,9 @@ export function ReportSection<T>({
   children,
 }: Props<T>) {
   const headingId = useId()
-  const { data, isError, error, isFetching, refetch } = query
+  const { isError, error, isFetching, isPlaceholderData, refetch } = query
+  // Con datos de placeholder (período anterior) un error es del período nuevo: no se maquilla.
+  const data = isPlaceholderData && isError ? undefined : query.data
   const retry = (
     <Button size="sm" variant="outline" onClick={() => void refetch()} disabled={isFetching}>
       Reintentar
@@ -69,7 +71,9 @@ export function ReportSection<T>({
           {isEmpty(data) ? (
             <p className="text-sm text-muted-foreground">{emptyMessage}</p>
           ) : (
-            <div aria-busy={isFetching}>{children(data)}</div>
+            <div aria-busy={isFetching} className={isPlaceholderData ? 'opacity-60' : undefined}>
+              {children(data)}
+            </div>
           )}
         </>
       )}

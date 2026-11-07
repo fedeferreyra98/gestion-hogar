@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { useEffect } from 'react'
@@ -35,7 +35,7 @@ const STORES = [row('coto', 200000, 'Coto'), row('', 50000, 'Sin comercio')]
 type Rows = Record<string, SummaryRow[] | number>
 const seenQueries: URLSearchParams[] = []
 
-function useHandlers(rows: Rows = { month: MONTHS, category: CATEGORIES, store: STORES }) {
+function mockApi(rows: Rows = { month: MONTHS, category: CATEGORIES, store: STORES }) {
   seenQueries.length = 0
   server.use(
     http.get(`${API}/me`, () =>
@@ -98,7 +98,7 @@ function renderAt(path: string, queryClient?: QueryClient) {
 
 beforeEach(() => {
   resetApiClient()
-  useHandlers()
+  mockApi()
 })
 afterEach(() => resetSession())
 
@@ -160,39 +160,104 @@ describe('Reportes', () => {
   })
 
   it('el total del período coincide con el "Total filtrado" del histórico para el mismo filtro', async () => {
+    // Un "backend" mínimo sobre las MISMAS compras/gastos: el resumen agrupa por mes y el
+    // listado devuelve gastos con su total filtrado; los datos de cada endpoint difieren en forma.
+    const fixture = [
+      { date: '2025-12-20', minor: 99900, currency: 'ARS' },
+      { date: '2026-01-05', minor: 120050, currency: 'ARS' },
+      { date: '2026-01-25', minor: 30000, currency: 'ARS' },
+      { date: '2026-02-10', minor: 4500, currency: 'USD' },
+      { date: '2026-04-02', minor: 777700, currency: 'ARS' },
+    ]
+    const inRange = (date: string, q: URLSearchParams) =>
+      date >= (q.get('from') ?? '0000') && date <= (q.get('to') ?? '9999')
     server.use(
-      http.get(`${API}/expenses`, () =>
-        HttpResponse.json({
+      http.get(`${API}/expenses/summary`, ({ request }) => {
+        const q = new URL(request.url).searchParams
+        const byKey = new Map<string, SummaryRow>()
+        for (const e of fixture.filter((f) => inRange(f.date, q))) {
+          const key = `${e.date.slice(0, 7)}|${e.currency}`
+          const prev = byKey.get(key)
+          byKey.set(
+            key,
+            row(e.date.slice(0, 7), (prev?.total.amountMinor ?? 0) + e.minor, '', e.currency),
+          )
+        }
+        return HttpResponse.json([...byKey.values()])
+      }),
+      http.get(`${API}/expenses`, ({ request }) => {
+        const q = new URL(request.url).searchParams
+        const items = fixture.filter((f) => inRange(f.date, q))
+        const totals = new Map<string, number>()
+        for (const e of items) totals.set(e.currency, (totals.get(e.currency) ?? 0) + e.minor)
+        return HttpResponse.json({
           content: [],
           page: 0,
           size: 20,
-          totalElements: 0,
+          totalElements: items.length,
           totalPages: 0,
-          totalFiltered: [
-            { amountMinor: 350050, currency: 'ARS' },
-            { amountMinor: 1000, currency: 'USD' },
-          ],
-        }),
-      ),
+          totalFiltered: [...totals.entries()].map(([currency, amountMinor]) => ({
+            amountMinor,
+            currency,
+          })),
+        })
+      }),
       http.get(`${API}/categories`, () => HttpResponse.json([])),
       http.get(`${API}/members`, () => HttpResponse.json([])),
     )
-    renderAt('/reportes?from=2026-01-01')
+    renderAt('/reportes?from=2026-01-01&to=2026-03-31')
 
-    const arsTotal = await screen.findByText(/Total del período: ARS/)
-    const usdTotal = screen.getByText(/Total del período: USD/)
+    const monthly = await screen.findByRole('region', { name: 'Gasto mensual' })
+    // 120050 + 30000 = 150050 (se excluyen dic-2025 y abr-2026 por el filtro)
+    const arsTotal = await within(monthly).findByText(/Total del período: ARS/)
+    const usdTotal = within(monthly).getByText(/Total del período: USD/)
+    expect(arsTotal.textContent).toBe('Total del período: ARS 1.500,50')
+    expect(usdTotal.textContent).toBe('Total del período: USD 45,00')
+
     await userEvent.click(screen.getByRole('link', { name: 'Ver histórico de gastos' }))
-
     const filtered = await screen.findByRole('region', { name: 'Total filtrado' })
-    await within(filtered).findByText('ARS 3.500,50')
-    expect(arsTotal.textContent).toBe('Total del período: ARS 3.500,50')
-    expect(usdTotal.textContent).toBe('Total del período: USD 10,00')
-    expect(within(filtered).getByText('USD 10,00')).toBeInTheDocument()
-    expect(currentUrl).toBe('/gastos?from=2026-01-01')
+    expect(await within(filtered).findByText('ARS 1.500,50')).toBeInTheDocument()
+    expect(within(filtered).getByText('USD 45,00')).toBeInTheDocument()
+    expect(currentUrl).toBe('/gastos?from=2026-01-01&to=2026-03-31')
+  })
+
+  it('rellena con 0 los meses del período elegido aunque no tengan gastos', async () => {
+    mockApi({ month: [row('2026-03', 5000)], category: [], store: [] })
+    renderAt('/reportes?from=2026-01-15&to=2026-05-10')
+    const table = await screen.findByRole('table', { name: 'Gasto mensual en ARS' })
+    const labels = within(table)
+      .getAllByRole('row')
+      .slice(1)
+      .map((r) => within(r).getAllByRole('rowheader')[0]?.textContent)
+    expect(labels).toEqual(['ene 2026', 'feb 2026', 'mar 2026', 'abr 2026', 'may 2026'])
+  })
+
+  it('montos de 1 a 3 unidades menores no rompen los ejes (ticks decimales)', async () => {
+    mockApi({
+      month: [row('2026-01', 1), row('2026-02', 3), row('2026-03', 2)],
+      category: [row('c1', 1, 'Chico'), row('c2', 3, 'Otro')],
+      store: [row('coto', 2, 'Coto')],
+    })
+    renderAt('/reportes')
+    const table = await screen.findByRole('table', { name: 'Gasto mensual en ARS' })
+    expect(within(table).getByRole('row', { name: /feb 2026/ })).toHaveTextContent('ARS 0,03')
+    expect(
+      await screen.findByRole('table', { name: 'gasto por comercio en ARS' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/No pudimos mostrar/)).not.toBeInTheDocument()
+  })
+
+  it('un error de la API por período inválido (400) se explica en español', async () => {
+    mockApi({ month: 400, category: CATEGORIES, store: STORES })
+    renderAt('/reportes')
+    const monthly = await screen.findByRole('region', { name: 'Gasto mensual' })
+    expect(await within(monthly).findByRole('alert')).toHaveTextContent(
+      'El período elegido no es válido',
+    )
   })
 
   it('muestra estados vacíos', async () => {
-    useHandlers({ month: [], category: [], store: [] })
+    mockApi({ month: [], category: [], store: [] })
     renderAt('/reportes')
 
     const monthly = await screen.findByRole('region', { name: 'Gasto mensual' })
@@ -206,7 +271,7 @@ describe('Reportes', () => {
   })
 
   it('un error no se muestra como vacío: alerta en español con reintento', async () => {
-    useHandlers({ month: 500, category: CATEGORIES, store: STORES })
+    mockApi({ month: 500, category: CATEGORIES, store: STORES })
     renderAt('/reportes')
 
     const monthly = await screen.findByRole('region', { name: 'Gasto mensual' })
@@ -214,7 +279,7 @@ describe('Reportes', () => {
     expect(alert).toHaveTextContent('No pudimos cargar el gasto mensual.')
     expect(within(monthly).queryByText('No hay gastos en este período.')).not.toBeInTheDocument()
 
-    useHandlers()
+    mockApi()
     await userEvent.click(within(alert).getByRole('button', { name: 'Reintentar' }))
     await within(monthly).findByRole('table', { name: 'Gasto mensual en ARS' })
     expect(within(monthly).queryByRole('alert')).not.toBeInTheDocument()
@@ -226,7 +291,7 @@ describe('Reportes', () => {
     const monthly = await screen.findByRole('region', { name: 'Gasto mensual' })
     await within(monthly).findByRole('table', { name: 'Gasto mensual en ARS' })
 
-    useHandlers({ month: 500, category: CATEGORIES, store: STORES })
+    mockApi({ month: 500, category: CATEGORIES, store: STORES })
     await act(async () => {
       await queryClient.invalidateQueries({ queryKey: ['expenses', 'summary'] })
     })
@@ -242,7 +307,6 @@ describe('Reportes', () => {
       'La fecha “Desde” no puede ser posterior a “Hasta”.',
     )
     expect(seenQueries.length).toBe(0)
-    resetSession()
   })
 
   it('descarta fechas inválidas de la URL y normaliza la dirección', async () => {
@@ -265,11 +329,11 @@ describe('Reportes', () => {
       store?: string,
     ): PricePoint => ({ date, store, unitPrice: { amountMinor, currency: 'ARS' }, unit })
 
-    async function pickLeche() {
+    async function pickLeche(path = '/reportes?from=2026-01-01', product = LECHE) {
       server.use(
         http.get(`${API}/products`, () =>
           HttpResponse.json({
-            content: [LECHE],
+            content: [product],
             page: 0,
             size: 20,
             totalElements: 1,
@@ -277,10 +341,12 @@ describe('Reportes', () => {
           }),
         ),
       )
-      renderAt('/reportes?from=2026-01-01')
-      const input = await screen.findByRole('combobox', { name: 'Producto' })
-      await userEvent.type(input, 'Leche')
-      await userEvent.click(await screen.findByRole('option', { name: /Leche entera/ }))
+      renderAt(path)
+      await userEvent.type(
+        await screen.findByRole('searchbox', { name: 'Buscar producto' }),
+        'Leche',
+      )
+      await userEvent.click(await screen.findByRole('button', { name: /Leche entera/ }))
     }
 
     it('una serie por unidad: no mezcla unidades y permite elegir', async () => {
@@ -339,6 +405,69 @@ describe('Reportes', () => {
       const alert = await screen.findByText('Ese producto ya no existe.')
       expect(alert.closest('[role="alert"]')).not.toBeNull()
       expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument()
+    })
+
+    it('no ofrece crear productos y deja elegir archivados, marcados como tales', async () => {
+      server.use(
+        http.get(`${API}/products/${LECHE.id}/price-history`, () =>
+          HttpResponse.json([point('2026-01-10', 150000, 'L', 'Coto')]),
+        ),
+      )
+      let createCalls = 0
+      server.use(
+        http.post(`${API}/products`, () => {
+          createCalls++
+          return HttpResponse.json({}, { status: 201 })
+        }),
+      )
+      await pickLeche('/reportes', { ...LECHE, archived: true })
+      expect(screen.queryByText(/Crear/)).not.toBeInTheDocument()
+      expect(await screen.findByText('(archivado)', { exact: false })).toBeInTheDocument()
+      expect(
+        await screen.findByRole('table', { name: /Precio de Leche entera/ }),
+      ).toBeInTheDocument()
+      expect(createCalls).toBe(0)
+    })
+
+    it('un rango inválido momentáneo conserva producto y unidad elegidos', async () => {
+      server.use(
+        http.get(`${API}/products/${LECHE.id}/price-history`, () =>
+          HttpResponse.json([point('2026-01-10', 150000, 'L'), point('2026-02-11', 90000, 'ML')]),
+        ),
+      )
+      await pickLeche('/reportes?from=2026-01-01&to=2026-03-31')
+      await userEvent.selectOptions(await screen.findByLabelText('Unidad'), 'ML')
+      await screen.findByRole('table', { name: 'Precio de Leche entera en ARS por ml' })
+
+      fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-04-01' } })
+      expect(
+        await screen.findByText(/Corregí el período para ver el histórico de Leche entera/),
+      ).toBeInTheDocument()
+      expect(screen.getByText('Leche entera', { selector: 'strong' })).toBeInTheDocument()
+
+      fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-01-01' } })
+      // Sigue elegida la unidad ML.
+      expect(
+        await screen.findByRole('table', { name: 'Precio de Leche entera en ARS por ml' }),
+      ).toBeInTheDocument()
+    })
+
+    it('montos de 1 a 3 unidades menores en el histórico de precios no rompen el gráfico', async () => {
+      server.use(
+        http.get(`${API}/products/${LECHE.id}/price-history`, () =>
+          HttpResponse.json([
+            point('2026-01-10', 1, 'G'),
+            point('2026-02-10', 3, 'G'),
+            point('2026-03-10', 2, 'G'),
+          ]),
+        ),
+      )
+      await pickLeche()
+      const table = await screen.findByRole('table', {
+        name: 'Precio de Leche entera en ARS por g',
+      })
+      expect(within(table).getByRole('row', { name: /10\/02\/2026/ })).toHaveTextContent('ARS 0,03')
+      expect(screen.queryByText(/No pudimos mostrar/)).not.toBeInTheDocument()
     })
   })
 })

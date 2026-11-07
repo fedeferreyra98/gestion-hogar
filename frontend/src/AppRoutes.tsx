@@ -1,6 +1,6 @@
-import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
+import { LazyRoute } from '@/components/LazyRoute'
 import { RequireAuth } from '@/auth/RequireAuth'
 import { CatalogPage } from '@/pages/CatalogPage'
 import { ExpensesPage } from '@/pages/ExpensesPage'
@@ -12,9 +12,7 @@ import { ShoppingListsPage } from '@/pages/ShoppingListsPage'
 import { StockPage } from '@/pages/StockPage'
 
 // Recharts pesa: la pantalla de reportes se carga bajo demanda.
-const ReportsPage = lazy(() =>
-  import('@/reports/ReportsPage').then((m) => ({ default: m.ReportsPage })),
-)
+const loadReports = () => import('@/reports/ReportsPage').then((m) => ({ default: m.ReportsPage }))
 
 export function AppRoutes() {
   return (
@@ -31,11 +29,7 @@ export function AppRoutes() {
           <Route path="stock" element={<StockPage />} />
           <Route
             path="reportes"
-            element={
-              <Suspense fallback={<p role="status">Cargando reportes…</p>}>
-                <ReportsPage />
-              </Suspense>
-            }
+            element={<LazyRoute load={loadReports} subject="los reportes" />}
           />
           <Route path="catalogo" element={<CatalogPage />} />
         </Route>

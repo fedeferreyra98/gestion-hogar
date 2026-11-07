@@ -20,12 +20,14 @@ export interface PriceHistoryParams {
   unit?: Unit
 }
 
-// Cuelga de `expenses` para que cualquier alta/edición/borrado de gastos (o compra completada,
-// que invalida `expenses`) refresque también los reportes.
+// El resumen cuelga de `expenses`: cualquier alta/edición/borrado de gastos (o compra completada,
+// que invalida `expenses`) refresca también los reportes. El histórico de precios se invalida
+// aparte (`priceHistoryRootQueryKey`) al completar una compra.
 export const expenseSummaryQueryKey = (params: SummaryParams) =>
   ['expenses', 'summary', params] as const
+export const priceHistoryRootQueryKey = ['products', 'price-history'] as const
 export const priceHistoryQueryKey = (productId: string, params: PriceHistoryParams = {}) =>
-  ['products', 'price-history', productId, params] as const
+  [...priceHistoryRootQueryKey, productId, params] as const
 
 export async function fetchExpenseSummary(
   params: SummaryParams,

@@ -10,6 +10,7 @@ import {
   sumMinor,
   unitsIn,
 } from './data'
+import { formatTick } from './format'
 
 const row = (key: string, amountMinor: number, currency = 'ARS', label = key): SummaryRow => ({
   key,
@@ -30,8 +31,35 @@ describe('reports/data', () => {
 
   it('usa el rango de todo el reporte para que las monedas compartan eje', () => {
     const ars = [row('2026-01', 100)]
-    const filled = fillMonths(ars, ['2026-01', '2026-03'])
+    const filled = fillMonths(ars, {}, ['2026-01', '2026-03'])
     expect(filled.map((m) => m.key)).toEqual(['2026-01', '2026-02', '2026-03'])
+  })
+
+  it('respeta from/to como límites del período (también con un solo extremo)', () => {
+    const rows = [row('2026-03', 100)]
+    expect(fillMonths(rows, { from: '2026-01-15', to: '2026-05-31' }).map((m) => m.key)).toEqual([
+      '2026-01',
+      '2026-02',
+      '2026-03',
+      '2026-04',
+      '2026-05',
+    ])
+    expect(fillMonths(rows, { from: '2026-02-01' }).map((m) => m.key)).toEqual([
+      '2026-02',
+      '2026-03',
+    ])
+    expect(fillMonths(rows, { to: '2026-04-30' }).map((m) => m.key)).toEqual(['2026-03', '2026-04'])
+  })
+
+  it('unitsIn conserva unidades desconocidas al final (sin undefined)', () => {
+    const p = (unit: string) =>
+      ({ date: '2026-01-01', unit, unitPrice: { amountMinor: 1, currency: 'ARS' } }) as PricePoint
+    expect(unitsIn([p('DOCENA'), p('KG')])).toEqual(['KG', 'DOCENA'])
+  })
+
+  it('formatTick no lanza con ticks no enteros', () => {
+    expect(formatTick(2.25, 'ARS')).toBe('')
+    expect(formatTick(250, 'ARS')).toBe('2,50')
   })
 
   it('no suma monedas distintas y suma en enteros', () => {

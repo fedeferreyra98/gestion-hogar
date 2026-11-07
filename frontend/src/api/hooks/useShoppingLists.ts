@@ -11,6 +11,7 @@ import type { Client } from 'openapi-fetch'
 import { getApiClient, unwrap, unwrapVoid } from '../client.ts'
 import { isProblemError, type ProblemError } from '../errors.ts'
 import { expensesRootQueryKey } from './useExpenses.ts'
+import { priceHistoryRootQueryKey } from './useReports.ts'
 import { stockRootQueryKey } from './useStock.ts'
 import type {
   CompleteListRequest,
@@ -167,7 +168,13 @@ export function useCompleteShoppingList(id: string, client?: Client<paths>) {
         list ? { ...list, status: 'COMPLETED' } : list,
       ),
     onSettled: () => {
-      for (const queryKey of [shoppingListsRootQueryKey, expensesRootQueryKey, stockRootQueryKey])
+      // `products/price-history`: la compra agrega un punto al histórico de precios.
+      for (const queryKey of [
+        shoppingListsRootQueryKey,
+        expensesRootQueryKey,
+        stockRootQueryKey,
+        priceHistoryRootQueryKey,
+      ])
         void queryClient.invalidateQueries({ queryKey })
     },
   })

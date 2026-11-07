@@ -1,12 +1,13 @@
+import { keepPreviousData } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useExpenseSummary, usePriceHistory, type SummaryRow } from '@/api/hooks/useReports'
 import type { Product, Unit } from '@/api/types'
-import { ProductPicker } from '@/catalog'
 import { UNIT_LABELS, UNIT_SHORT_LABELS } from '@/catalog/units'
 import { Button } from '@/components/ui/button'
 import { formatDate } from '@/expenses/dates'
 import { formatMinor } from '@/lib/money'
+import { useDebouncedValue } from '@/lib/useDebouncedValue'
 import { PriceLineChart, SpendBarChart, type BarDatum } from './Charts'
 import {
   categoryLabel,
@@ -19,6 +20,7 @@ import {
   unitsIn,
 } from './data'
 import { canonicalRangeSearch, isInvalidRange, parseRange } from './filters'
+import { ProductSelect } from './ProductSelect'
 import { ReportSection } from './ReportSection'
 
 const inputClass = 'h-10 rounded-md border border-border bg-background px-3 text-sm'
@@ -125,11 +127,10 @@ function CurrencyBreakdowns({ chartName, firstColumn, rows, labelOf, horizontal 
 }
 
 function MonthlyReport({ from, to }: { from: string; to: string }) {
-  const query = useExpenseSummary({
-    groupBy: 'month',
-    from: from || undefined,
-    to: to || undefined,
-  })
+  const query = useExpenseSummary(
+    { groupBy: 'month', from: from || undefined, to: to || undefined },
+    { placeholderData: keepPreviousData },
+  )
   return (
     <ReportSection
       title="Gasto mensual"
@@ -139,11 +140,14 @@ function MonthlyReport({ from, to }: { from: string; to: string }) {
       emptyMessage="No hay gastos en este período."
     >
       {(rows) => {
-        const allKeys = rows.map((r) => r.key)
         return (
           <div className="flex flex-col gap-6">
             {groupByCurrency(rows).map(({ currency, rows: list }) => {
-              const data: BarDatum[] = fillMonths(list, allKeys).map((m) => ({
+              const data: BarDatum[] = fillMonths(
+                list,
+                { from, to },
+                rows.map((r) => r.key),
+              ).map((m) => ({
                 label: formatMonth(m.key),
                 amountMinor: m.amountMinor,
               }))
@@ -184,11 +188,10 @@ function MonthlyReport({ from, to }: { from: string; to: string }) {
 }
 
 function CategoryReport({ from, to }: { from: string; to: string }) {
-  const query = useExpenseSummary({
-    groupBy: 'category',
-    from: from || undefined,
-    to: to || undefined,
-  })
+  const query = useExpenseSummary(
+    { groupBy: 'category', from: from || undefined, to: to || undefined },
+    { placeholderData: keepPreviousData },
+  )
   return (
     <ReportSection
       title="Gasto por categoría"
@@ -216,11 +219,10 @@ function CategoryReport({ from, to }: { from: string; to: string }) {
 }
 
 function StoreReport({ from, to }: { from: string; to: string }) {
-  const query = useExpenseSummary({
-    groupBy: 'store',
-    from: from || undefined,
-    to: to || undefined,
-  })
+  const query = useExpenseSummary(
+    { groupBy: 'store', from: from || undefined, to: to || undefined },
+    { placeholderData: keepPreviousData },
+  )
   return (
     <ReportSection
       title="Gasto por comercio"
@@ -248,13 +250,27 @@ function StoreReport({ from, to }: { from: string; to: string }) {
   )
 }
 
-function PriceHistoryReport({ from, to }: { from: string; to: string }) {
+function PriceHistoryReport({
+  from,
+  to,
+  invalidRange,
+}: {
+  from: string
+  to: string
+  /** Período inválido: se conservan producto y unidad, pero no se consulta. */
+  invalidRange: boolean
+}) {
   const [product, setProduct] = useState<Product | null>(null)
   const [pickedUnit, setPickedUnit] = useState<Unit | null>(null)
   const query = usePriceHistory(
     product?.id ?? '',
     { from: from || undefined, to: to || undefined },
-    { enabled: product !== null },
+    {
+      enabled: product !== null && !invalidRange,
+      // Solo se conservan los datos al cambiar el período del MISMO producto.
+      placeholderData: (prev, prevQuery) =>
+        prevQuery?.queryKey[2] === product?.id ? prev : undefined,
+    },
   )
 
   return (
@@ -262,23 +278,20 @@ function PriceHistoryReport({ from, to }: { from: string; to: string }) {
       <h2 id="price-history-title" className="text-lg font-semibold">
         Evolución de precio
       </h2>
-      <ProductPicker
-        label="Producto"
+      <ProductSelect
         value={product}
         onSelect={(p) => {
           setProduct(p)
           setPickedUnit(null)
         }}
-        onQueryChange={() => {
-          if (product) {
-            setProduct(null)
-            setPickedUnit(null)
-          }
-        }}
       />
       {product === null ? (
         <p className="text-sm text-muted-foreground">
           Elegí un producto para ver cómo cambió su precio.
+        </p>
+      ) : invalidRange ? (
+        <p className="text-sm text-muted-foreground">
+          Corregí el período para ver el histórico de {product.name}.
         </p>
       ) : (
         <ReportSection
@@ -292,7 +305,8 @@ function PriceHistoryReport({ from, to }: { from: string; to: string }) {
           {(points) => {
             const units = unitsIn(points)
             // Una unidad por vez: nunca se mezclan unidades distintas en una misma serie.
-            const unit = pickedUnit && units.includes(pickedUnit) ? pickedUnit : (units[0] as Unit)
+            const unit = pickedUnit && units.includes(pickedUnit) ? pickedUnit : units[0]!
+            const unitShort = UNIT_SHORT_LABELS[unit] ?? unit
             return (
               <div className="flex flex-col gap-4">
                 {units.length > 1 ? (
@@ -308,7 +322,7 @@ function PriceHistoryReport({ from, to }: { from: string; to: string }) {
                     >
                       {units.map((u) => (
                         <option key={u} value={u}>
-                          {UNIT_LABELS[u]}
+                          {UNIT_LABELS[u] ?? u}
                         </option>
                       ))}
                     </select>
@@ -320,7 +334,7 @@ function PriceHistoryReport({ from, to }: { from: string; to: string }) {
                 {seriesForUnit(points, unit).map(({ currency, points: series }) => (
                   <div key={currency} className="flex flex-col gap-3">
                     <h4 className="font-medium">
-                      Moneda: {currency} · precio por {UNIT_SHORT_LABELS[unit]}
+                      Moneda: {currency} · precio por {unitShort}
                     </h4>
                     <PriceLineChart
                       currency={currency}
@@ -329,13 +343,13 @@ function PriceHistoryReport({ from, to }: { from: string; to: string }) {
                         date: p.date,
                         amountMinor: p.unitPrice.amountMinor,
                       }))}
-                      description={`Gráfico de líneas: precio de ${product.name} en ${currency} por ${UNIT_SHORT_LABELS[unit]}, ${series.length} ${
+                      description={`Gráfico de líneas: precio de ${product.name} en ${currency} por ${unitShort}, ${series.length} ${
                         series.length === 1 ? 'compra' : 'compras'
                       }. Los valores están en la tabla siguiente.`}
                     />
                     <DataTable
-                      caption={`Precio de ${product.name} en ${currency} por ${UNIT_SHORT_LABELS[unit]}`}
-                      head={['Fecha', 'Comercio', `Precio por ${UNIT_SHORT_LABELS[unit]}`]}
+                      caption={`Precio de ${product.name} en ${currency} por ${unitShort}`}
+                      head={['Fecha', 'Comercio', `Precio por ${unitShort}`]}
                     >
                       {series.map((p, i) => (
                         <tr key={`${i}-${p.date}`}>
@@ -365,6 +379,9 @@ export function ReportsPage() {
   const searchKey = searchParams.toString()
   const range = useMemo(() => parseRange(new URLSearchParams(searchKey)), [searchKey])
   const { from, to } = range
+  // Las consultas usan el período con debounce: tipear una fecha no dispara ráfagas de pedidos.
+  const debouncedKey = useDebouncedValue(`${from}|${to}`, 300)
+  const [qFrom = '', qTo = ''] = debouncedKey.split('|')
 
   // Normaliza la URL si traía basura (reemplaza la entrada del historial).
   useEffect(() => {
@@ -449,12 +466,12 @@ export function ReportsPage() {
         </p>
       ) : (
         <>
-          <MonthlyReport from={from} to={to} />
-          <CategoryReport from={from} to={to} />
-          <StoreReport from={from} to={to} />
-          <PriceHistoryReport from={from} to={to} />
+          <MonthlyReport from={qFrom} to={qTo} />
+          <CategoryReport from={qFrom} to={qTo} />
+          <StoreReport from={qFrom} to={qTo} />
         </>
       )}
+      <PriceHistoryReport from={qFrom} to={qTo} invalidRange={invalid} />
     </div>
   )
 }

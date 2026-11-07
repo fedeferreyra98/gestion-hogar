@@ -9,12 +9,21 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { formatMinor } from '@/lib/money'
 import type { ReactNode } from 'react'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { formatTick } from './format'
 
 const AXIS_TICK = { fill: 'var(--muted-foreground)', fontSize: 12 }
 // En jsdom (y antes del primer layout) el contenedor mide 0: dimensión inicial para no romper.
 const INITIAL = { width: 320, height: 240 }
+
+/** Ancho del eje de montos según el monto más largo (≈7 px por carácter a 12 px), entre 48 y 112. */
+function valueAxisWidth(maxAmountMinor: number, currency: string): number {
+  const chars = formatTick(Math.abs(maxAmountMinor), currency).length
+  return Math.min(112, Math.max(48, chars * 7 + 16))
+}
+
+const shorten = (text: string) => (text.length > 14 ? `${text.slice(0, 13)}…` : text)
 
 /**
  * El gráfico es un complemento visual: `role="img"` + descripción, y los mismos datos van en una
@@ -22,9 +31,11 @@ const INITIAL = { width: 320, height: 240 }
  */
 function ChartFrame({ description, children }: { description: string; children: ReactNode }) {
   return (
-    <div role="img" aria-label={description} className="w-full min-w-0">
-      {children}
-    </div>
+    <ErrorBoundary subject="el gráfico" hint="Los datos están en la tabla.">
+      <div role="img" aria-label={description} className="w-full min-w-0">
+        {children}
+      </div>
+    </ErrorBoundary>
   )
 }
 
@@ -46,7 +57,8 @@ export function SpendBarChart({
   horizontal?: boolean
 }) {
   const height = horizontal ? Math.max(160, data.length * 36 + 40) : 240
-  const fmt = (v: unknown) => `${currency} ${formatMinor(Number(v), currency)}`
+  const fmt = (v: unknown) => `${currency} ${formatTick(v, currency)}`.trimEnd()
+  const axisWidth = valueAxisWidth(Math.max(0, ...data.map((d) => d.amountMinor)), currency)
   return (
     <ChartFrame description={description}>
       <ResponsiveContainer width="100%" height={height} initialDimension={INITIAL}>
@@ -62,17 +74,25 @@ export function SpendBarChart({
               <XAxis
                 type="number"
                 tick={AXIS_TICK}
-                tickFormatter={(v) => formatMinor(Number(v), currency)}
+                allowDecimals={false}
+                tickFormatter={(v) => formatTick(v, currency)}
               />
-              <YAxis type="category" dataKey="label" width={110} tick={AXIS_TICK} />
+              <YAxis
+                type="category"
+                dataKey="label"
+                width={96}
+                tick={AXIS_TICK}
+                tickFormatter={shorten}
+              />
             </>
           ) : (
             <>
               <XAxis dataKey="label" tick={AXIS_TICK} interval="preserveStartEnd" />
               <YAxis
-                width={80}
+                width={axisWidth}
                 tick={AXIS_TICK}
-                tickFormatter={(v) => formatMinor(Number(v), currency)}
+                allowDecimals={false}
+                tickFormatter={(v) => formatTick(v, currency)}
               />
             </>
           )}
@@ -118,13 +138,14 @@ export function PriceLineChart({
             }
           />
           <YAxis
-            width={80}
+            width={valueAxisWidth(Math.max(0, ...data.map((d) => d.amountMinor)), currency)}
             tick={AXIS_TICK}
-            tickFormatter={(v) => formatMinor(Number(v), currency)}
+            allowDecimals={false}
+            tickFormatter={(v) => formatTick(v, currency)}
           />
           <Tooltip
             labelFormatter={(i) => data[Number(i)]?.date ?? ''}
-            formatter={(v) => `${currency} ${formatMinor(Number(v), currency)}`}
+            formatter={(v) => `${currency} ${formatTick(v, currency)}`.trimEnd()}
           />
           <Line
             type="monotone"

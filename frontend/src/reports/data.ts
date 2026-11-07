@@ -38,22 +38,37 @@ export function formatMonth(key: string): string {
   return match ? `${MONTHS[Number(match[2]) - 1]} ${match[1]}` : key
 }
 
+export interface MonthBounds {
+  /** YYYY-MM-DD (o YYYY-MM): primer mes a mostrar. Sin valor, el primer mes con datos. */
+  from?: string
+  /** YYYY-MM-DD (o YYYY-MM): último mes a mostrar. Sin valor, el último mes con datos. */
+  to?: string
+}
+
 /**
- * El backend no devuelve meses sin gastos: los huecos entre el primero y el último mes
- * (de todo el reporte, para que las monedas compartan eje) se completan con 0.
+ * El backend no devuelve meses sin gastos: los huecos se completan con 0 entre el primer y el
+ * último mes del período elegido (`from`/`to`; si falta alguno, el primero/último mes con datos de
+ * todo el reporte, para que las monedas compartan eje).
  */
-export function fillMonths(rows: SummaryRow[], allKeys: string[] = rows.map((r) => r.key)) {
+export function fillMonths(
+  rows: SummaryRow[],
+  bounds: MonthBounds = {},
+  allKeys: string[] = rows.map((r) => r.key),
+) {
+  const raw = (rows_: SummaryRow[]) =>
+    rows_.map((r) => ({ key: r.key, amountMinor: r.total.amountMinor }))
   const valid = allKeys.filter((k) => MONTH_KEY.test(k)).sort()
-  const first = valid[0]
-  const last = valid[valid.length - 1]
-  const byKey = new Map(rows.map((r) => [r.key, r.total.amountMinor]))
-  if (!first || !last) return rows.map((r) => ({ key: r.key, amountMinor: r.total.amountMinor }))
+  const monthOf = (date?: string) =>
+    date && MONTH_KEY.test(date.slice(0, 7)) ? date.slice(0, 7) : ''
+  // Los datos mandan si caen fuera del período (no deberían): nunca se pierde una barra.
+  const first = [monthOf(bounds.from), valid[0]].filter(Boolean).sort()[0]
+  const last = [monthOf(bounds.to), valid[valid.length - 1]].filter(Boolean).sort().at(-1)
+  if (!first || !last) return raw(rows)
   const [fy, fm] = first.split('-').map(Number) as [number, number]
   const [ly, lm] = last.split('-').map(Number) as [number, number]
   const span = (ly - fy) * 12 + (lm - fm) + 1
-  if (span > MAX_FILLED_MONTHS) {
-    return rows.map((r) => ({ key: r.key, amountMinor: r.total.amountMinor }))
-  }
+  if (span > MAX_FILLED_MONTHS) return raw(rows)
+  const byKey = new Map(rows.map((r) => [r.key, r.total.amountMinor]))
   const out: { key: string; amountMinor: number }[] = []
   for (let i = 0; i < span; i++) {
     const index = fy * 12 + (fm - 1) + i
@@ -73,10 +88,12 @@ export function storeLabel(row: SummaryRow): string {
 
 export const UNIT_ORDER: readonly Unit[] = ['UNIT', 'KG', 'G', 'L', 'ML', 'PACK']
 
-/** Unidades presentes en los puntos, en orden estable. */
+/** Unidades presentes en los puntos, en orden estable (las desconocidas, al final y ordenadas). */
 export function unitsIn(points: PricePoint[]): Unit[] {
   const present = new Set(points.map((p) => p.unit))
-  return UNIT_ORDER.filter((u) => present.has(u))
+  const known = UNIT_ORDER.filter((u) => present.has(u))
+  const unknown = [...present].filter((u) => !UNIT_ORDER.includes(u)).sort()
+  return [...known, ...unknown]
 }
 
 /** Puntos de UNA unidad agrupados por moneda: cada serie es homogénea (sin mezclar unidades ni monedas). */
