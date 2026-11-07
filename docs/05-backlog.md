@@ -133,9 +133,10 @@ Supuestos: rutas `/listas` y `/listas/:id`; archivar con `window.confirm`; canti
 Wizard UC-13: revisar ítems tildados (cantidad/precio/vencimiento), comercio/fecha/pagador/total, qué hacer con no tildados. Manejo de errores `LIST_NOT_OPEN`.
 CA: total por defecto = suma; validaciones Zod; flujo completo con MSW; `lib/money.ts` con tests (parseo "1.500,50" ↔ minor units).
 
-**BL-155 · Gastos UI [M] · BL-151, BL-107** · `TODO`
+**BL-155 · Gastos UI [M] · BL-151, BL-107** · `DONE`
 Histórico con filtros y total filtrado, alta/edición manual, detalle de compra.
 CA: paginación infinita o por páginas; filtros reflejados en la URL.
+Supuestos (BL-155): `/gastos` (histórico, paginación por páginas de 20), `/gastos/nuevo` y `/gastos/:id` (edición si `MANUAL`; solo lectura si `PURCHASE`). Filtros (`from`, `to`, `categoryId`, `paidBy`, `source`, `q`) y `page` (1-based) viven en la URL. La moneda del alta es la base del hogar; `lib/money.ts` asume 2 decimales salvo JPY/CLP/PYG/KRW/VND. El pagador se resuelve con `GET /members`.
 
 **BL-156 · Stock UI [M] · BL-151, BL-106** · `DONE`
 Listado agrupado por vencimiento con badges de estado, alta manual, consumir (rápido: botones −1/todo), descartar, banner de alertas.
