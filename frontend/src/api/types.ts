@@ -45,3 +45,10 @@ export type ShoppingListSummary = Schemas['ShoppingListSummary']
 export type ShoppingListSummaryPage = Omit<Schemas['ShoppingListSummaryPage'], 'content'> & {
   content: ShoppingListSummary[]
 }
+
+// Stock
+export type StockItem = Schemas['StockItem']
+export type StockItemPage = Omit<Schemas['StockItemPage'], 'content'> & { content: StockItem[] }
+export type StockAlerts = Schemas['StockAlerts']
+export type ExpiryStatus = Schemas['ExpiryStatus']
+export type CreateStockItemRequest = Schemas['CreateStockItemRequest']

@@ -3,7 +3,7 @@ import { useDeleteShoppingListItem, useToggleShoppingListItem } from '@/api/hook
 import type { ShoppingListItem } from '@/api/types'
 import { UNIT_SHORT_LABELS } from '@/catalog/units'
 import { Button } from '@/components/ui/button'
-import { formatQuantity } from '@/shopping/quantity'
+import { formatDecimal } from '@/lib/decimal'
 import { problemMessage } from '@/shopping/status'
 
 interface ShoppingItemRowProps {
@@ -40,7 +40,7 @@ export function ShoppingItemRow({ listId, item, readOnly, onMessage }: ShoppingI
       >
         <span className="font-medium">{item.product.name}</span>{' '}
         <span>
-          {formatQuantity(item.quantity)} {UNIT_SHORT_LABELS[item.unit]}
+          {formatDecimal(item.quantity)} {UNIT_SHORT_LABELS[item.unit]}
         </span>
         {item.note && <span className="block text-xs">{item.note}</span>}
       </label>

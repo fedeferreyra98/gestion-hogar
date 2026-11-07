@@ -34,13 +34,13 @@ member *─* settlement(from,to)
 
 **shopping_list_item**: `id`, `list_id FK ON DELETE CASCADE`, `product_id FK`, `quantity NUMERIC(12,3) > 0`, `unit`, `estimated_price_minor BIGINT NULL`, `note TEXT NULL`, `checked BOOLEAN DEFAULT FALSE`, `checked_at NULL`. `UNIQUE(list_id, product_id, unit)`.
 
-**purchase**: `id`, `household_id FK`, `shopping_list_id FK NULL UNIQUE`, `store TEXT NULL`, `purchase_date DATE`, `total_minor BIGINT > 0`, `currency CHAR(3)`, `paid_by FK member`, `expense_id FK UNIQUE`.
+**purchase**: `id`, `household_id FK`, `shopping_list_id FK NULL UNIQUE`, `store TEXT NULL`, `purchase_date DATE`, `total_minor BIGINT > 0`, `currency CHAR(3)`, `paid_by FK member`, `expense_id FK UNIQUE`, `created_by FK member`, `created_at`, `updated_at`.
 
-**purchase_item**: `id`, `purchase_id FK ON DELETE CASCADE`, `product_id FK`, `quantity NUMERIC(12,3)`, `unit`, `unit_price_minor BIGINT`, `total_minor BIGINT`, `expiry_date DATE NULL`. Invariante: `total_minor = round(quantity × unit_price_minor)`; `Σ total_minor` puede ser ≠ `purchase.total_minor` (descuentos/ítems no listados) y está permitido.
+**purchase_item**: `id`, `purchase_id FK ON DELETE CASCADE`, `position INT` (orden de carga), `product_id FK`, `quantity NUMERIC(12,3)`, `unit`, `unit_price_minor BIGINT`, `total_minor BIGINT`, `expiry_date DATE NULL`. Invariante: `total_minor = round(quantity × unit_price_minor)`; `Σ total_minor` puede ser ≠ `purchase.total_minor` (descuentos/ítems no listados) y está permitido.
 
 **expense**: `id`, `household_id FK`, `description`, `amount_minor BIGINT > 0`, `currency CHAR(3)`, `expense_date DATE`, `category_id FK NULL`, `paid_by FK member`, `source` (`PURCHASE|MANUAL`), `shared BOOLEAN DEFAULT FALSE`, `split_mode` (`CONTRIBUTION|EQUAL|CUSTOM`) `NULL` si no compartido, `created_by FK`, `deleted_at NULL`. Índices: `(household_id, expense_date DESC)`, `(category_id)`.
 
-**stock_item**: `id`, `household_id FK`, `product_id FK`, `quantity NUMERIC(12,3) >= 0` (restante), `initial_quantity NUMERIC(12,3)`, `unit`, `expiry_date DATE NULL`, `location TEXT NULL`, `purchase_item_id FK NULL`, `status` (`ACTIVE|CONSUMED|DISCARDED`), `discard_reason NULL`, `added_at`. Índices: `(household_id, status, expiry_date)`, `(product_id)`.
+**stock_item**: `id`, `household_id FK`, `product_id FK`, `quantity NUMERIC(12,3) >= 0` (restante), `initial_quantity NUMERIC(12,3)`, `unit`, `expiry_date DATE NULL`, `location TEXT NULL`, `purchase_item_id FK NULL ON DELETE SET NULL`, `status` (`ACTIVE|CONSUMED|DISCARDED`), `discard_reason NULL`, `added_at`. Índices: `(household_id, status, expiry_date)`, `(product_id)`.
 
 **stock_movement** (trazabilidad): `id`, `stock_item_id FK`, `type` (`IN|CONSUME|DISCARD|ADJUST`), `quantity NUMERIC(12,3)`, `created_by FK`, `created_at`.
 

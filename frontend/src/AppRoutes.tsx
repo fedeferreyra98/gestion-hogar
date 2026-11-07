@@ -7,6 +7,7 @@ import { Placeholder } from '@/pages/Placeholder'
 import { RegisterPage } from '@/pages/RegisterPage'
 import { ShoppingListDetailPage } from '@/pages/ShoppingListDetailPage'
 import { ShoppingListsPage } from '@/pages/ShoppingListsPage'
+import { StockPage } from '@/pages/StockPage'
 
 export function AppRoutes() {
   return (
@@ -19,7 +20,7 @@ export function AppRoutes() {
           <Route path="listas" element={<ShoppingListsPage />} />
           <Route path="listas/:id" element={<ShoppingListDetailPage />} />
           <Route path="gastos" element={<Placeholder title="Gastos" />} />
-          <Route path="stock" element={<Placeholder title="Stock" />} />
+          <Route path="stock" element={<StockPage />} />
           <Route path="catalogo" element={<CatalogPage />} />
         </Route>
       </Route>

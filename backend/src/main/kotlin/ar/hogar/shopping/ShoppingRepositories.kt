@@ -1,8 +1,10 @@
 package ar.hogar.shopping
 
+import jakarta.persistence.LockModeType
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import java.util.UUID
@@ -18,6 +20,13 @@ data class ListSummaryRow(
 )
 
 interface ShoppingListRepository : JpaRepository<ShoppingList, UUID> {
+    /** Bloquea la fila: dos "completar" simultáneos sobre la misma lista se serializan. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    fun findWithLockByIdAndHouseholdId(
+        id: UUID,
+        householdId: UUID,
+    ): ShoppingList?
+
     @Query(
         """
         select new ar.hogar.shopping.ListSummaryRow(
