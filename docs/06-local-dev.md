@@ -40,7 +40,8 @@ Reglas para agentes:
 | Postgres 16 con healthcheck y tuning de velocidad (sin fsync, solo dev) | `docker-compose.yml` | Hecho |
 | Variables de entorno de ejemplo | `.env.example` | Hecho |
 | Comandos unificados | `Makefile` | Hecho |
-| Smoke test E2E incremental | `scripts/smoke.sh` | Hecho (se activa por secciones) |
+| Smoke test E2E incremental (auth, UC-13 lista→compra→gasto+stock, gastos, FEFO, miembros) | `scripts/smoke.sh` | Hecho (se activa por secciones; exit ≠ 0 si algo falla) |
+| Job de CI opcional del smoke (Postgres + backend + smoke) | `.github/workflows/smoke.yml` | Hecho (BL-013; manual o etiqueta `run-smoke`) |
 | Seed del owner dev | `scripts/seed.sh` | Hecho |
 | Perfil Spring `local` (`application-local.yml`) y `test` | `backend/` | Hecho |
 | Datos demo de catálogo (idempotente) | `backend/` | BL-111 |

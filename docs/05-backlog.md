@@ -105,9 +105,10 @@ CA: tests de agregación con varios meses y categorías; montos por moneda.
 Perfil `local` carga categorías comunes (Almacén, Lácteos, Limpieza, Verdura, Carne, Bebidas, Higiene) y ~30 productos con vida útil típica.
 CA: arranque con perfil `local` los carga una sola vez (idempotente).
 
-**BL-013 · Localdev: verificación continua del smoke [S] · BL-102, BL-108** · `TODO`
+**BL-013 · Localdev: verificación continua del smoke [S] · BL-102, BL-108** · `DONE`
 Extender `scripts/smoke.sh` a medida que se agregan endpoints (stock, gastos, sugerencias) y sumar un job opcional de CI que levante Postgres, arranque el backend y ejecute `make smoke`.
 CA: el smoke cubre UC-13 completo (lista → compra → gasto + stock) y falla si se rompe el flujo.
+Supuestos (BL-013): el smoke asume moneda base `ARS` (override con `SMOKE_BASE_CURRENCY`) y usa un sufijo único por corrida (no requiere base vacía; es idempotente). El job de CI vive en `.github/workflows/smoke.yml`, separado de `ci.yml` y opcional: se dispara con `workflow_dispatch` o con la etiqueta `run-smoke` en un PR, así que nunca es un check requerido de `main`.
 
 ---
 
