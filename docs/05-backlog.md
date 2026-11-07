@@ -158,9 +158,10 @@ Panel "Te puede faltar" con botón agregar.
 CA: agregar una sugerencia la suma a la lista y la saca del panel.
 Supuestos: `Suggestion` agrega `defaultUnit` (cambio de contrato) y al agregar se usa cantidad 1 con esa unidad. El panel solo se monta en listas `OPEN` y muestra 5 sugerencias con "Ver más".
 
-**BL-158 · Dashboard y reportes [M] · BL-155, BL-110** · `TODO`
+**BL-158 · Dashboard y reportes [M] · BL-155, BL-110** · `DONE`
 Gasto mensual, por categoría, evolución de precio de producto (gráficos con Recharts).
 CA: estados vacíos; consistente con totales del histórico.
+Supuestos (BL-158): ruta `/reportes` (ítem "Reportes" en la navegación) con período `from`/`to` en la URL (fechas inválidas se descartan) y 4 secciones: gasto mensual, por categoría, por comercio y evolución de precio. Un gráfico + tabla equivalente POR MONEDA (nunca se suman monedas); el mensual rellena en el cliente los meses sin gastos con 0. "Sin categoría" y "Sin comercio" se muestran con aviso de que el gasto por comercio solo incluye compras. En el histórico de precios se elige una unidad por vez (sin convertir) y se filtra en el cliente; hay una serie por moneda. Sin cambios de contrato. El selector de producto de reportes es de solo lectura (no crea, permite archivados). Las pantallas se protegen con `ErrorBoundary`/`LazyRoute` (fallo de gráfico o de chunk → mensaje con reintento). Recharts 3.10.1 (`accessibilityLayer` desactivado; el gráfico es `role="img"` con descripción y los datos van en tabla).
 
 **BL-159 · PWA y pulido móvil [M] · BL-153..BL-158** · `TODO`
 Service worker (cache de shell), instalable, íconos, estados de carga/error uniformes, textos en español.
