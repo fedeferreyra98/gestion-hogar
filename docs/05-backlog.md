@@ -111,6 +111,14 @@ Extender `scripts/smoke.sh` a medida que se agregan endpoints (stock, gastos, su
 CA: el smoke cubre UC-13 completo (lista → compra → gasto + stock) y falla si se rompe el flujo.
 Supuestos (BL-013): el smoke asume moneda base `ARS` (override con `SMOKE_BASE_CURRENCY`) y usa un sufijo único por corrida (no requiere base vacía; es idempotente). El job de CI vive en `.github/workflows/smoke.yml`, separado de `ci.yml` y opcional: se dispara con `workflow_dispatch` o con la etiqueta `run-smoke` en un PR, así que nunca es un check requerido de `main`.
 
+**BL-015 · Localdev: tests de frontend estables bajo carga [S] · BL-012** · `TODO`
+Varios tests RTL fallan de forma intermitente cuando la máquina está saturada (muchos agentes o builds en paralelo): `frontend/src/catalog/catalog.test.tsx` (el `getByRole` síncrono tras avanzar 5×20 ms con timers falsos, hacia las líneas 111-117, apuesta a que MSW/fetch resuelvan en esos pasos; más un `useFakeTimers` parcial que solo falsea `setTimeout`/`clearTimeout`) y `frontend/src/shopping/shopping.test.tsx`. Los `findBy*` dependen del timeout por defecto de 1 s. Medido: ningún test tiene fuga ni uso alto de memoria (heap de 58–144 MB por archivo, suite completa de ~200 tests en ~4 s), así que la causa es la contención de CPU y no la memoria.
+CA: configurar un `asyncUtilTimeout` de Testing Library y un `testTimeout` de Vitest holgados (p. ej. 5 s) en `frontend/src/test/setup.ts`/`vite.config.ts`; reemplazar las esperas síncronas tras avanzar timers por `waitFor`/`findBy*`; usar fake timers completos y coherentes donde se testee el debounce; revisar los warnings de `act()` y los "unhandled request" de MSW en `auth.test.tsx`/`router.test.tsx`. La suite completa pasa 20 corridas seguidas con la máquina cargada (p. ej. corriendo `npm run test -- --run` en paralelo con otro build) sin fallos intermitentes, y `make verify` queda en verde.
+
+**BL-016 · Localdev: contenedor Testcontainers sin choques entre worktrees [S] · BL-012** · `TODO`
+`make test-backend` fija `TESTCONTAINERS_REUSE_ENABLE=true` (Makefile) y `IntegrationTestBase` reutiliza un único contenedor Postgres. Con varios worktrees/ramas en paralelo, cada uno con migraciones distintas, el contenedor reutilizable compartido falla la validación de Flyway con migraciones que la otra rama no conoce, o falla todo el contexto al cargar: da falsos rojos (o verdes) y obliga a correr `make -o test-backend verify` o `TESTCONTAINERS_REUSE_ENABLE=false`.
+CA: el reuse deja de compartirse entre worktrees (p. ej. etiqueta/nombre del contenedor derivado de la ruta del worktree o de un hash de las migraciones, o reuse desactivado por defecto fuera del checkout principal); dos worktrees con migraciones distintas corren `make test-backend` a la vez sin falsos fallos; en CI no se usa reuse; `make test-fast` no cambia; `docs/06-local-dev.md` documenta el comportamiento y cómo limpiar contenedores huérfanos.
+
 ---
 
 ## Fase 1 (MVP) — Frontend
