@@ -327,7 +327,8 @@ class StockService(
         return value
     }
 
-    private fun checkExpiryRange(date: LocalDate) {
+    /** `expiryDate` dentro de [MIN_EXPIRY, MAX_EXPIRY]; fuera de rango → 400. */
+    fun checkExpiryRange(date: LocalDate) {
         if (date.isBefore(MIN_EXPIRY) || date.isAfter(MAX_EXPIRY)) {
             throw ValidationException(
                 "Invalid expiryDate",

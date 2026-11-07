@@ -11,12 +11,15 @@ import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers
 import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.reset
+import org.mockito.Mockito.verify
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpMethod
 import org.springframework.http.MediaType
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.test.web.servlet.MvcResult
 import org.springframework.test.web.servlet.request
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -49,6 +52,8 @@ class PurchaseIntegrationTest : IntegrationTestBase() {
     @Autowired lateinit var jwt: JwtService
 
     @MockitoSpyBean lateinit var stockService: StockService
+
+    @Autowired lateinit var txManager: PlatformTransactionManager
 
     private fun call(
         method: HttpMethod,
@@ -344,6 +349,16 @@ class PurchaseIntegrationTest : IntegrationTestBase() {
                     )
                 }.exceptionOrNull()
             assertTrue(failure?.cause is IllegalStateException, "expected the forced failure, got $failure")
+            // El 1º lote sí se llegó a crear dentro de la transacción antes de que falle el 2º.
+            verify(stockService).addPurchased(
+                anyOf(UUID::class.java, ZERO),
+                anyOf(UUID::class.java, ZERO),
+                eqOf(UUID.fromString(a)),
+                anyOf(java.math.BigDecimal::class.java, java.math.BigDecimal.ONE),
+                anyOf(ar.hogar.catalog.Unit::class.java, ar.hogar.catalog.Unit.UNIT),
+                ArgumentMatchers.any(),
+                anyOf(UUID::class.java, ZERO),
+            )
         } finally {
             reset(stockService)
         }
@@ -368,14 +383,16 @@ class PurchaseIntegrationTest : IntegrationTestBase() {
         try {
             val futures =
                 (1..2).map {
-                    pool.submit<Int> {
+                    pool.submit<Pair<Int, String?>> {
                         start.await()
-                        call(HttpMethod.POST, "shopping-lists/$list/complete", req, c.token).response.status
+                        val r = call(HttpMethod.POST, "shopping-lists/$list/complete", req, c.token)
+                        r.response.status to body(r)["code"]?.asText()
                     }
                 }
             start.countDown()
-            val statuses = futures.map { it.get() }.sorted()
-            assertEquals(listOf(201, 422), statuses)
+            val results = futures.map { it.get() }
+            assertEquals(listOf(201, 422), results.map { it.first }.sorted())
+            assertEquals("LIST_NOT_OPEN", results.single { it.first == 422 }.second)
         } finally {
             pool.shutdownNow()
         }
@@ -551,5 +568,295 @@ class PurchaseIntegrationTest : IntegrationTestBase() {
             400,
             call(HttpMethod.PUT, "purchases/$id", mapOf("items" to emptyList<Any>()), c.token).response.status,
         )
+    }
+
+    /**
+     * Retiene el lock de la lista en otra transacción (como si "completar" estuviera en curso), lanza [op] y la
+     * libera recién cuando [op] ya está esperando. Devuelve la respuesta de [op].
+     */
+    private fun withListLockedAndCompleted(
+        listId: String,
+        op: () -> MvcResult,
+    ): MvcResult {
+        val locked = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val holder =
+                pool.submit {
+                    TransactionTemplate(txManager).executeWithoutResult {
+                        jdbc.queryForList("SELECT id FROM shopping_list WHERE id = ?::uuid FOR UPDATE", listId)
+                        jdbc.update(
+                            "UPDATE shopping_list SET status = 'COMPLETED', completed_at = now() WHERE id = ?::uuid",
+                            listId,
+                        )
+                        locked.countDown()
+                        release.await()
+                    }
+                }
+            locked.await()
+            val waiting = pool.submit<MvcResult> { op() }
+            Thread.sleep(500) // la operación debe quedar bloqueada esperando el lock de la lista
+            assertTrue(!waiting.isDone, "the operation must wait for the list lock")
+            release.countDown()
+            holder.get()
+            return waiting.get()
+        } finally {
+            release.countDown()
+            pool.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `archiving or editing a list waits for a concurrent completion instead of overwriting it`() {
+        val c = owner()
+        val p = product(c, "Pan")
+        val archived = newList(c, "A archivar")
+        val r1 =
+            withListLockedAndCompleted(archived) {
+                call(HttpMethod.PATCH, "shopping-lists/$archived", mapOf("status" to "ARCHIVED"), c.token)
+            }
+        assertEquals(422, r1.response.status)
+        assertEquals("LIST_NOT_OPEN", body(r1)["code"].asText())
+        assertEquals("COMPLETED", listStatus(archived))
+        assertEquals(
+            true,
+            jdbc.queryForObject(
+                "SELECT completed_at IS NOT NULL FROM shopping_list WHERE id = ?::uuid",
+                Boolean::class.java,
+                archived,
+            ),
+        )
+
+        val withItem = newList(c, "Con ítem")
+        val r2 =
+            withListLockedAndCompleted(withItem) {
+                call(
+                    HttpMethod.POST,
+                    "shopping-lists/$withItem/items",
+                    mapOf("productId" to p, "quantity" to "1", "unit" to "UNIT"),
+                    c.token,
+                )
+            }
+        assertEquals(422, r2.response.status)
+        assertEquals(0L, count("shopping_list_item"))
+    }
+
+    @Test
+    fun `patching or deleting an item waits for a concurrent completion`() {
+        val c = owner()
+        val p = product(c, "Pan")
+        val list = newList(c)
+        val item = listItem(c, list, p)
+        val r1 =
+            withListLockedAndCompleted(list) {
+                call(HttpMethod.PATCH, "shopping-lists/$list/items/$item", mapOf("checked" to true), c.token)
+            }
+        assertEquals(422, r1.response.status)
+        assertEquals(0L, count("shopping_list_item WHERE checked"))
+    }
+
+    @Test
+    fun `completing and archiving the same list at once never leaves an inconsistent state`() {
+        val c = owner()
+        val p = product(c, "Pan")
+        val list = newList(c)
+        val item = listItem(c, list, p, checked = true)
+        val req = completeBody(c, listOf(line(p, "1", 500, item)), 500, leftover = "DISCARD")
+        val start = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val complete =
+                pool.submit<Int> {
+                    start.await()
+                    call(HttpMethod.POST, "shopping-lists/$list/complete", req, c.token).response.status
+                }
+            val archive =
+                pool.submit<Int> {
+                    start.await()
+                    call(
+                        HttpMethod.PATCH,
+                        "shopping-lists/$list",
+                        mapOf("status" to "ARCHIVED"),
+                        c.token,
+                    ).response.status
+                }
+            start.countDown()
+            val (done, arch) = complete.get() to archive.get()
+            if (done == 201) {
+                assertEquals(422, arch)
+                assertEquals("COMPLETED", listStatus(list))
+                assertEquals(1L, count("purchase"))
+            } else {
+                assertEquals(200, arch)
+                assertEquals(422, done)
+                assertEquals("ARCHIVED", listStatus(list))
+                assertEquals(0L, count("purchase"))
+            }
+        } finally {
+            pool.shutdownNow()
+        }
+        assertEquals(
+            count("purchase") == 1L,
+            jdbc.queryForObject("SELECT completed_at IS NOT NULL FROM shopping_list", Boolean::class.java),
+        )
+    }
+
+    @Test
+    fun `list items must match their list item product and belong to the household`() {
+        val c = owner()
+        val leche = product(c, "Leche")
+        val pan = product(c, "Pan")
+        val list = newList(c)
+        val item = listItem(c, list, leche, checked = true)
+        val path = "shopping-lists/$list/complete"
+        // sustituir el producto de un ítem de lista → 400 y no se crea nada
+        val swapped = call(HttpMethod.POST, path, completeBody(c, listOf(line(pan, "1", 100, item))), c.token)
+        assertEquals(400, swapped.response.status)
+        assertEquals("items[0].productId", body(swapped)["errors"][0]["field"].asText())
+        // producto de otro hogar → 404
+        val b = otherHousehold()
+        val foreign = product(b, "Ajeno")
+        assertEquals(
+            404,
+            call(HttpMethod.POST, path, completeBody(c, listOf(line(foreign, "1", 100))), c.token).response.status,
+        )
+        // ítem de una lista de otro hogar → 400 (no pertenece a esta lista)
+        val bList = newList(b)
+        val bItem = listItem(b, bList, foreign, checked = true)
+        assertEquals(
+            400,
+            call(HttpMethod.POST, path, completeBody(c, listOf(line(leche, "1", 100, bItem))), c.token).response.status,
+        )
+        assertEquals(0L, count("purchase"))
+        assertEquals("OPEN", listStatus(list))
+    }
+
+    @Test
+    fun `dates are validated and an out-of-range default shelf life is a 400`() {
+        val c = owner()
+        val long = product(c, "Conserva", shelfLifeDays = 365 * 100) // 100 años
+        val ok = product(c, "Pan")
+
+        fun create(
+            items: List<Map<String, Any?>>,
+            date: String = "2026-03-10",
+        ) = call(
+            HttpMethod.POST,
+            "purchases",
+            mapOf(
+                "purchaseDate" to date,
+                "paidBy" to c.memberId,
+                "total" to money(100),
+                "items" to items,
+            ),
+            c.token,
+        )
+        assertEquals(400, create(listOf(line(ok, "1", 100)), date = "0001-01-01").response.status)
+        assertEquals(400, create(listOf(line(ok, "1", 100)), date = "9999-12-31").response.status)
+        assertEquals(400, create(listOf(line(ok, "1", 100, expiry = "0001-01-01"))).response.status)
+        // 2100-12-31 + 100 años > 2999-12-31 no, pero con una vida útil enorme sí se sale de rango
+        val huge = product(c, "Eterno", shelfLifeDays = Int.MAX_VALUE)
+        val r = create(listOf(line(huge, "1", 100)))
+        assertEquals(400, r.response.status)
+        assertEquals("items[0].expiryDate", body(r)["errors"][0]["field"].asText())
+        assertEquals(201, create(listOf(line(long, "1", 100))).response.status)
+        assertEquals(1L, count("purchase"))
+        // en la edición también se valida el vencimiento informado
+        val id = body(call(HttpMethod.GET, "purchases", bearer = c.token))["content"][0]["id"].asText()
+        val bad = mapOf("items" to listOf(line(ok, "1", 100, expiry = "0001-01-01")))
+        assertEquals(400, call(HttpMethod.PUT, "purchases/$id", bad, c.token).response.status)
+    }
+
+    @Test
+    fun `overflowing line totals, bad sort and rollback of a purchase without list`() {
+        val c = owner()
+        val p = product(c, "Pan")
+
+        fun create(items: List<Map<String, Any?>>) =
+            call(
+                HttpMethod.POST,
+                "purchases",
+                mapOf("purchaseDate" to "2026-03-10", "paidBy" to c.memberId, "total" to money(100), "items" to items),
+                c.token,
+            )
+        // quantity × unitPrice desborda un Long → 400
+        assertEquals(400, create(listOf(line(p, "999999999.999", Long.MAX_VALUE))).response.status)
+        assertEquals(0L, count("purchase"))
+        assertEquals(400, call(HttpMethod.GET, "purchases?sort=bogus,asc", bearer = c.token).response.status)
+        assertEquals(200, call(HttpMethod.GET, "purchases?sort=totalMinor,desc", bearer = c.token).response.status)
+        assertEquals(200, call(HttpMethod.GET, "purchases?sort=createdAt", bearer = c.token).response.status)
+
+        // el fallo del stock en POST /purchases también deja todo en cero
+        try {
+            doThrow(IllegalStateException("boom"))
+                .`when`(stockService)
+                .addPurchased(
+                    anyOf(UUID::class.java, ZERO),
+                    anyOf(UUID::class.java, ZERO),
+                    anyOf(UUID::class.java, ZERO),
+                    anyOf(java.math.BigDecimal::class.java, java.math.BigDecimal.ONE),
+                    anyOf(ar.hogar.catalog.Unit::class.java, ar.hogar.catalog.Unit.UNIT),
+                    ArgumentMatchers.any(),
+                    anyOf(UUID::class.java, ZERO),
+                )
+            val failure = runCatching { create(listOf(line(p, "1", 100))) }.exceptionOrNull()
+            assertTrue(failure?.cause is IllegalStateException, "expected the forced failure, got $failure")
+        } finally {
+            reset(stockService)
+        }
+        assertEquals(0L, count("purchase"))
+        assertEquals(0L, count("expense"))
+        assertEquals(0L, count("stock_item"))
+    }
+
+    @Test
+    fun `editing validates store, products, currency and payer`() {
+        val c = owner()
+        val p = product(c, "Pan")
+        val created =
+            body(
+                call(
+                    HttpMethod.POST,
+                    "purchases",
+                    mapOf(
+                        "purchaseDate" to "2026-03-10",
+                        "store" to "Super Mock",
+                        "paidBy" to c.memberId,
+                        "total" to money(500),
+                        "items" to listOf(line(p, "1", 500)),
+                    ),
+                    c.token,
+                ),
+            )
+        val id = created["id"].asText()
+        val items = listOf(line(p, "1", 500))
+
+        fun put(b: Map<String, Any?>) = call(HttpMethod.PUT, "purchases/$id", b, c.token)
+
+        // store en blanco → 400 (no borra el comercio); ausente → sin cambios
+        assertEquals(400, put(mapOf("store" to "  ", "items" to items)).response.status)
+        assertEquals("Super Mock", body(call(HttpMethod.GET, "purchases/$id", bearer = c.token))["store"].asText())
+        assertEquals("Super Mock", body(put(mapOf("items" to items)))["store"].asText())
+        // producto de otro hogar → 404; moneda ≠ base → 422
+        val foreign = product(otherHousehold(), "Ajeno")
+        val foreignLine = line(foreign, "1", 100)
+        assertEquals(404, put(mapOf("items" to listOf(foreignLine))).response.status)
+        val usd = put(mapOf("items" to listOf(line(p, "1", 100, currency = "USD"))))
+        assertEquals(422, usd.response.status)
+        assertEquals("UNSUPPORTED_CURRENCY", body(usd)["code"].asText())
+        assertEquals(422, put(mapOf("total" to money(100, "USD"), "items" to items)).response.status)
+        // pagador: inactivo nuevo → 400; el actual desactivado puede conservarse
+        val inactive = UUID.randomUUID()
+        jdbc.update(
+            "INSERT INTO member " +
+                "(id, household_id, email, password_hash, display_name, role, active, created_at, updated_at) " +
+                "SELECT ?, household_id, 'old@example.test', 'x', 'Viejo', 'MEMBER', false, now(), now() " +
+                "FROM member LIMIT 1",
+            inactive,
+        )
+        assertEquals(400, put(mapOf("paidBy" to "$inactive", "items" to items)).response.status)
+        jdbc.update("UPDATE member SET active = false WHERE id = ?::uuid", c.memberId)
+        assertEquals(200, put(mapOf("items" to items)).response.status)
     }
 }

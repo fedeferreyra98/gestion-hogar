@@ -47,7 +47,14 @@ class PurchaseService(
         val input: PurchaseItemInput,
         val product: Product,
         val totalMinor: Long,
+        /** Vencimiento del lote: el informado o `purchaseDate + defaultShelfLifeDays`; ya validado. */
+        val stockExpiry: LocalDate?,
     )
+
+    private companion object {
+        val MIN_PURCHASE_DATE: LocalDate = LocalDate.of(1900, 1, 1)
+        val MAX_PURCHASE_DATE: LocalDate = LocalDate.of(2100, 12, 31)
+    }
 
     @Transactional
     fun completeList(
@@ -59,13 +66,23 @@ class PurchaseService(
         // El lock serializa dos "completar" simultáneos: el segundo ve la lista COMPLETED → 422 LIST_NOT_OPEN.
         val list = shopping.lockOpenList(householdId, listId)
         val listItems = shopping.itemsOf(list.id)
-        val listItemIds = listItems.map { it.id }.toSet()
+        val listItemsById = listItems.associateBy { it.id }
         val referenced = req.items!!.mapNotNull { it.listItemId }
-        if (referenced.size != referenced.toSet().size || !listItemIds.containsAll(referenced)) {
+        if (referenced.size != referenced.toSet().size || !listItemsById.keys.containsAll(referenced)) {
             throw ValidationException(
                 "Invalid list items",
                 listOf(FieldError("items.listItemId", "must be distinct items of this list")),
             )
+        }
+        // Un ítem de la lista se compra con su mismo producto (no se sustituye en silencio).
+        req.items.forEachIndexed { index, item ->
+            val listed = item.listItemId?.let { listItemsById.getValue(it) }
+            if (listed != null && listed.productId != item.productId) {
+                throw ValidationException(
+                    "Invalid list items",
+                    listOf(FieldError("items[$index].productId", "must match the product of the list item")),
+                )
+            }
         }
         val purchase =
             register(
@@ -172,14 +189,21 @@ class PurchaseService(
         val purchase =
             purchases.findWithLockByIdAndHouseholdId(id, householdId)
                 ?: throw NotFoundException("Purchase not found")
-        val store = if (req.store != null) req.store.clean() else purchase.store
-        val date = req.purchaseDate ?: purchase.purchaseDate
+        // `store` ausente = sin cambios; en blanco se rechaza (no se puede borrar el comercio).
+        val store =
+            if (req.store == null) {
+                purchase.store
+            } else {
+                req.store.clean()
+                    ?: throw ValidationException("Invalid store", listOf(FieldError("store", "must not be blank")))
+            }
+        val date = validDate(req.purchaseDate ?: purchase.purchaseDate)
         val paidBy = req.paidBy ?: purchase.paidBy
         val total =
             req.total?.let { validatedTotal(householdId, it) }
                 ?: Money.of(purchase.totalMinor, purchase.currency.trim())
         requirePayer(householdId, paidBy, currentPayer = purchase.paidBy)
-        val lines = lines(householdId, req.items!!)
+        val lines = lines(householdId, date, req.items!!)
 
         purchaseItems.deleteByPurchase(purchase.id)
         insertItems(purchase.id, lines)
@@ -217,8 +241,9 @@ class PurchaseService(
         items: List<PurchaseItemInput>,
     ): PurchaseDto {
         val money = validatedTotal(householdId, total)
+        validDate(date)
         requirePayer(householdId, paidBy, currentPayer = null)
-        val lines = lines(householdId, items)
+        val lines = lines(householdId, date, items)
         val now = clock.instant()
 
         val expenseId =
@@ -243,16 +268,13 @@ class PurchaseService(
         val saved = insertItems(purchase.id, lines)
         // Vencimiento: el informado o, si falta, fecha de compra + vida útil por defecto del producto.
         lines.zip(saved).forEach { (line, item) ->
-            val expiry =
-                line.input.expiryDate
-                    ?: line.product.defaultShelfLifeDays?.let { date.plusDays(it.toLong()) }
             stock.addPurchased(
                 householdId,
                 memberId,
                 line.product.id,
                 item.quantity,
                 item.unit,
-                expiry,
+                line.stockExpiry,
                 item.id,
             )
         }
@@ -282,6 +304,7 @@ class PurchaseService(
     /** Valida producto (del hogar), moneda y calcula `total = round(quantity × unitPrice)` sin floats (ADR-004). */
     private fun lines(
         householdId: UUID,
+        date: LocalDate,
         inputs: List<PurchaseItemInput>,
     ): List<Line> {
         val policy = currencyPolicy(householdId)
@@ -306,8 +329,47 @@ class PurchaseService(
                         listOf(FieldError("items[$index].unitPrice", "quantity × unitPrice is too large")),
                     )
                 }
-            Line(input, product, total)
+            Line(input, product, total, expiry(index, date, input, product))
         }
+    }
+
+    /** Vencimiento del lote; uno fuera de rango (informado o calculado) → 400 sobre el ítem, nunca un 500. */
+    private fun expiry(
+        index: Int,
+        date: LocalDate,
+        input: PurchaseItemInput,
+        product: Product,
+    ): LocalDate? {
+        input.expiryDate?.let {
+            stock.checkExpiryRange(it)
+            return it
+        }
+        val days = product.defaultShelfLifeDays ?: return null
+        val computed =
+            try {
+                date.plusDays(days.toLong()).also(stock::checkExpiryRange)
+            } catch (_: java.time.DateTimeException) {
+                null
+            } catch (_: ValidationException) {
+                null
+            }
+        return computed
+            ?: throw ValidationException(
+                "Invalid expiry",
+                listOf(
+                    FieldError("items[$index].expiryDate", "default shelf life is out of range; provide expiryDate"),
+                ),
+            )
+    }
+
+    private fun validDate(date: LocalDate): LocalDate {
+        if (date.isBefore(MIN_PURCHASE_DATE) || date.isAfter(MAX_PURCHASE_DATE)) {
+            throw ValidationException(
+                "Invalid purchaseDate",
+                listOf(FieldError("purchaseDate", "must be between $MIN_PURCHASE_DATE and $MAX_PURCHASE_DATE")),
+            )
+        }
+        return date
     }
 
     /** Total > 0 (400) y en la moneda del hogar (422 `UNSUPPORTED_CURRENCY`). */

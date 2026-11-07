@@ -75,7 +75,7 @@ class ShoppingService(
         id: UUID,
         req: UpdateShoppingListRequest,
     ): ShoppingListDto {
-        val list = list(householdId, id)
+        val list = lockedList(householdId, id)
         if (req.name == null && req.status == null) return list.toDto(items.findByList(id))
         if (req.status != null && req.status != ShoppingListStatus.ARCHIVED) {
             throw ValidationException("Invalid status", listOf(FieldError("status", "must be ARCHIVED")))
@@ -123,7 +123,7 @@ class ShoppingService(
         id: UUID,
         req: ShoppingListItemInput,
     ): ShoppingListItemDto {
-        val list = list(householdId, id)
+        val list = lockedList(householdId, id)
         requireOpen(list)
         val product = product(householdId, req.productId!!)
         val price = req.estimatedPrice?.let { validPrice(householdId, it) }
@@ -154,7 +154,7 @@ class ShoppingService(
         itemId: UUID,
         req: UpdateShoppingListItemRequest,
     ): ShoppingListItemDto {
-        val list = list(householdId, id)
+        val list = lockedList(householdId, id)
         requireOpen(list)
         val item = item(id, itemId)
         val now = clock.instant()
@@ -182,7 +182,7 @@ class ShoppingService(
         id: UUID,
         itemId: UUID,
     ) {
-        requireOpen(list(householdId, id))
+        requireOpen(lockedList(householdId, id))
         items.delete(item(id, itemId))
     }
 
@@ -279,6 +279,15 @@ class ShoppingService(
         id: UUID,
     ) = lists.findById(id).orElse(null)?.takeIf { it.householdId == householdId }
         ?: throw NotFoundException("Shopping list not found")
+
+    /**
+     * Lista bloqueada (`FOR UPDATE`) para toda mutación: serializa contra "completar" y evita pisar el estado
+     * (p. ej. archivar una lista recién completada o agregar un ítem a una lista `COMPLETED`).
+     */
+    private fun lockedList(
+        householdId: UUID,
+        id: UUID,
+    ) = lists.findWithLockByIdAndHouseholdId(id, householdId) ?: throw NotFoundException("Shopping list not found")
 
     private fun item(
         listId: UUID,
