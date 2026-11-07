@@ -1,3 +1,4 @@
+import { keepPreviousData } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
@@ -8,17 +9,23 @@ import {
 } from '@/api/hooks/useShoppingLists'
 import type { ShoppingListStatus, ShoppingListSummary } from '@/api/types'
 import { Button } from '@/components/ui/button'
+import { ArchiveAction } from '@/shopping/ArchiveAction'
 import { STATUS_LABELS, problemMessage } from '@/shopping/status'
 
+const PAGE_SIZE = 20
 const FILTERS: ShoppingListStatus[] = ['OPEN', 'COMPLETED', 'ARCHIVED']
 
 export function ShoppingListsPage() {
   const navigate = useNavigate()
   const [status, setStatus] = useState<ShoppingListStatus>('OPEN')
   const [name, setName] = useState('')
+  const [page, setPage] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
-  const { data, isLoading, isError, refetch } = useShoppingLists({ status, size: 50 })
+  const { data, isLoading, isError, refetch } = useShoppingLists(
+    { status, page, size: PAGE_SIZE },
+    { placeholderData: keepPreviousData },
+  )
   const createList = useCreateShoppingList()
   const duplicateList = useDuplicateShoppingList()
   const archiveList = useArchiveShoppingList()
@@ -52,7 +59,6 @@ export function ShoppingListsPage() {
   }
 
   async function handleArchive(list: ShoppingListSummary) {
-    if (!window.confirm(`¿Archivar la lista "${list.name}"? Quedará de solo lectura.`)) return
     setError(null)
     try {
       await archiveList.mutateAsync(list.id)
@@ -98,7 +104,10 @@ export function ShoppingListsPage() {
             size="sm"
             variant={status === s ? 'default' : 'outline'}
             aria-pressed={status === s}
-            onClick={() => setStatus(s)}
+            onClick={() => {
+              setStatus(s)
+              setPage(0)
+            }}
           >
             {s === 'OPEN' ? 'Abiertas' : s === 'COMPLETED' ? 'Completadas' : 'Archivadas'}
           </Button>
@@ -154,21 +163,44 @@ export function ShoppingListsPage() {
                 Duplicar
               </Button>
               {list.status === 'OPEN' && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  aria-label={`Archivar ${list.name}`}
+                <ArchiveAction
+                  label="Archivar"
+                  triggerAriaLabel={`Archivar ${list.name}`}
+                  confirmAriaLabel={`Confirmar archivar ${list.name}`}
                   disabled={archiveList.isPending}
-                  onClick={() => void handleArchive(list)}
-                >
-                  Archivar
-                </Button>
+                  onConfirm={() => void handleArchive(list)}
+                />
               )}
             </div>
           </li>
         ))}
       </ul>
+
+      {data && data.totalPages > 1 && (
+        <nav aria-label="Paginación" className="flex items-center justify-between gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={page === 0}
+            onClick={() => setPage((p) => p - 1)}
+          >
+            Anterior
+          </Button>
+          <span className="text-sm" aria-live="polite">
+            Página {page + 1} de {data.totalPages}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={page + 1 >= data.totalPages}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Siguiente
+          </Button>
+        </nav>
+      )}
     </section>
   )
 }

@@ -1,5 +1,6 @@
 import {
   useMutation,
+  type QueryClient,
   useQuery,
   useQueryClient,
   type UseQueryOptions,
@@ -7,7 +8,7 @@ import {
 } from '@tanstack/react-query'
 import type { Client } from 'openapi-fetch'
 import { getApiClient, unwrap, unwrapVoid } from '../client.ts'
-import type { ProblemError } from '../errors.ts'
+import { isProblemError, type ProblemError } from '../errors.ts'
 import type {
   ShoppingList,
   ShoppingListItem,
@@ -112,11 +113,17 @@ export async function deleteShoppingListItem(
   itemId: string,
   client?: Client<paths>,
 ): Promise<void> {
-  return unwrapVoid(
-    (client ?? getApiClient()).DELETE('/shopping-lists/{id}/items/{itemId}', {
-      params: { path: { id: listId, itemId } },
-    }),
-  )
+  try {
+    await unwrapVoid(
+      (client ?? getApiClient()).DELETE('/shopping-lists/{id}/items/{itemId}', {
+        params: { path: { id: listId, itemId } },
+      }),
+    )
+  } catch (err) {
+    // Idempotent: if the item is already gone (double tap, other device) the goal is met.
+    if (isProblemError(err) && err.status === 404) return
+    throw err
+  }
 }
 
 export type UseShoppingListsOptions = Omit<
@@ -176,25 +183,41 @@ export function useDuplicateShoppingList(client?: Client<paths>) {
   })
 }
 
+/** Common key prefix of every item mutation of a list (used to know if any is in flight). */
+const listMutationsKey = (listId: string) => ['shopping-lists', 'mutation', listId] as const
+
+/**
+ * Revalidate only when this is the last in-flight mutation of the list: refetching while
+ * others are pending would overwrite their optimistic state with a stale server snapshot.
+ */
+function invalidateWhenIdle(queryClient: QueryClient, listId: string) {
+  if (queryClient.isMutating({ mutationKey: listMutationsKey(listId) }) > 1) return
+  return queryClient.invalidateQueries({ queryKey: shoppingListsRootQueryKey })
+}
+
 export function useAddShoppingListItem(listId: string, client?: Client<paths>) {
   const queryClient = useQueryClient()
   return useMutation<ShoppingListItem, ProblemError, ShoppingListItemInput>({
+    mutationKey: [...listMutationsKey(listId), 'add'],
     mutationFn: (input) => addShoppingListItem(listId, input, client),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: shoppingListsRootQueryKey }),
+    onSettled: () => invalidateWhenIdle(queryClient, listId),
   })
 }
 
-export function useDeleteShoppingListItem(listId: string, client?: Client<paths>) {
+/** One instance per item row, so each row tracks its own pending state. */
+export function useDeleteShoppingListItem(
+  listId: string,
+  itemId: string,
+  onError?: (error: ProblemError) => void,
+  client?: Client<paths>,
+) {
   const queryClient = useQueryClient()
-  return useMutation<void, ProblemError, string>({
-    mutationFn: (itemId) => deleteShoppingListItem(listId, itemId, client),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: shoppingListsRootQueryKey }),
+  return useMutation<void, ProblemError, void>({
+    mutationKey: [...listMutationsKey(listId), 'delete', itemId],
+    mutationFn: () => deleteShoppingListItem(listId, itemId, client),
+    onError: (err) => onError?.(err),
+    onSettled: () => invalidateWhenIdle(queryClient, listId),
   })
-}
-
-interface ToggleVars {
-  itemId: string
-  checked: boolean
 }
 
 function patchItemChecked(
@@ -210,22 +233,38 @@ function patchItemChecked(
 }
 
 /**
- * Tildado con optimistic update: la UI cambia al instante y se revierte (solo ese ítem)
- * si el servidor rechaza el cambio. Siempre revalida al terminar.
+ * Tildado con optimistic update: la UI cambia al instante y, si el servidor lo rechaza,
+ * se restaura el valor previo de ese ítem y se avisa (`onError` del hook: corre una vez por
+ * cada fallo, a diferencia del de `mutate()` que solo corre para la última llamada).
+ * Los tildados del mismo ítem se encolan (`scope`) y solo se revalida cuando no quedan
+ * mutaciones de la lista en vuelo. Una instancia por fila.
  */
-export function useToggleShoppingListItem(listId: string, client?: Client<paths>) {
+export function useToggleShoppingListItem(
+  listId: string,
+  itemId: string,
+  onError?: (error: ProblemError) => void,
+  client?: Client<paths>,
+) {
   const queryClient = useQueryClient()
   const key = shoppingListQueryKey(listId)
-  return useMutation<ShoppingListItem, ProblemError, ToggleVars>({
-    mutationFn: ({ itemId, checked }) =>
-      setShoppingListItemChecked(listId, itemId, checked, client),
-    onMutate: async ({ itemId, checked }) => {
+  return useMutation<ShoppingListItem, ProblemError, boolean, { previous?: boolean }>({
+    mutationKey: [...listMutationsKey(listId), 'toggle', itemId],
+    scope: { id: `shopping-list-${listId}-item-${itemId}` },
+    mutationFn: (checked) => setShoppingListItemChecked(listId, itemId, checked, client),
+    onMutate: async (checked) => {
       await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient
+        .getQueryData<ShoppingList>(key)
+        ?.items.find((it) => it.id === itemId)?.checked
       queryClient.setQueryData<ShoppingList>(key, (old) => patchItemChecked(old, itemId, checked))
+      return { previous }
     },
-    onError: (_err, { itemId, checked }) => {
-      queryClient.setQueryData<ShoppingList>(key, (old) => patchItemChecked(old, itemId, !checked))
+    onError: (err, checked, context) => {
+      queryClient.setQueryData<ShoppingList>(key, (old) =>
+        patchItemChecked(old, itemId, context?.previous ?? !checked),
+      )
+      onError?.(err)
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: shoppingListsRootQueryKey }),
+    onSettled: () => invalidateWhenIdle(queryClient, listId),
   })
 }

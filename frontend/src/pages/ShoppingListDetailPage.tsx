@@ -4,33 +4,31 @@ import { isProblemError } from '@/api/errors'
 import {
   useAddShoppingListItem,
   useArchiveShoppingList,
-  useDeleteShoppingListItem,
   useDuplicateShoppingList,
   useShoppingList,
-  useToggleShoppingListItem,
 } from '@/api/hooks/useShoppingLists'
 import type { Product, Unit } from '@/api/types'
 import { ProductPicker } from '@/catalog'
-import { UNITS, UNIT_LABELS, UNIT_SHORT_LABELS } from '@/catalog/units'
+import { UNITS, UNIT_LABELS } from '@/catalog/units'
 import { Button } from '@/components/ui/button'
+import { ArchiveAction } from '@/shopping/ArchiveAction'
+import { parseQuantity } from '@/shopping/quantity'
+import { ShoppingItemRow } from '@/shopping/ShoppingItemRow'
 import { STATUS_LABELS, problemMessage } from '@/shopping/status'
-
-const QUANTITY_RE = /^\d{1,9}(\.\d{1,3})?$/
-
-function parseQuantity(raw: string): string | null {
-  const normalized = raw.trim().replace(',', '.')
-  if (!QUANTITY_RE.test(normalized) || Number(normalized) <= 0) return null
-  return normalized
-}
 
 export function ShoppingListDetailPage() {
   const { id = '' } = useParams()
+  // key: reset the quick-add form when navigating between lists (e.g. after duplicating).
+  return <ShoppingListDetail key={id} id={id} />
+}
+
+const PICKER_ID = 'item-product'
+
+function ShoppingListDetail({ id }: { id: string }) {
   const navigate = useNavigate()
   const { data: list, isLoading, isError, error: loadError, refetch } = useShoppingList(id)
 
-  const toggle = useToggleShoppingListItem(id)
   const addItem = useAddShoppingListItem(id)
-  const deleteItem = useDeleteShoppingListItem(id)
   const duplicate = useDuplicateShoppingList()
   const archive = useArchiveShoppingList()
 
@@ -94,24 +92,10 @@ export function ShoppingListDetailPage() {
       await addItem.mutateAsync({ productId: product.id, quantity: qty, unit })
       setProduct(null)
       setQuantity('1')
+      document.getElementById(PICKER_ID)?.focus()
     } catch (err) {
       setMessage(problemMessage(err, 'No pudimos agregar el producto.'))
     }
-  }
-
-  function handleToggle(itemId: string, checked: boolean) {
-    setMessage(null)
-    toggle.mutate(
-      { itemId, checked },
-      { onError: (err) => setMessage(problemMessage(err, 'No pudimos actualizar el ítem.')) },
-    )
-  }
-
-  function handleDelete(itemId: string) {
-    setMessage(null)
-    deleteItem.mutate(itemId, {
-      onError: (err) => setMessage(problemMessage(err, 'No pudimos quitar el ítem.')),
-    })
   }
 
   async function handleDuplicate() {
@@ -125,11 +109,9 @@ export function ShoppingListDetailPage() {
   }
 
   async function handleArchive() {
-    if (!window.confirm(`¿Archivar la lista "${list!.name}"? Quedará de solo lectura.`)) return
     setMessage(null)
     try {
       await archive.mutateAsync(list!.id)
-      await refetch()
     } catch (err) {
       setMessage(problemMessage(err, 'No pudimos archivar la lista.'))
     }
@@ -161,15 +143,12 @@ export function ShoppingListDetailPage() {
           Duplicar lista
         </Button>
         {isOpen && (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
+          <ArchiveAction
+            label="Archivar lista"
+            confirmAriaLabel={`Confirmar archivar ${list.name}`}
             disabled={archive.isPending}
-            onClick={() => void handleArchive()}
-          >
-            Archivar lista
-          </Button>
+            onConfirm={() => void handleArchive()}
+          />
         )}
       </div>
 
@@ -179,7 +158,14 @@ export function ShoppingListDetailPage() {
           aria-label="Agregar producto"
           className="flex flex-col gap-2 rounded-md border border-border p-3"
         >
-          <ProductPicker value={product} onSelect={handleSelectProduct} />
+          <ProductPicker
+            id={PICKER_ID}
+            value={product}
+            onSelect={handleSelectProduct}
+            onQueryChange={(q) => {
+              if (product && q !== product.name) setProduct(null)
+            }}
+          />
           <div className="flex flex-wrap items-end gap-2">
             <div className="flex flex-col gap-1">
               <label htmlFor="item-quantity" className="text-sm font-medium">
@@ -210,7 +196,7 @@ export function ShoppingListDetailPage() {
                 ))}
               </select>
             </div>
-            <Button type="submit" disabled={addItem.isPending}>
+            <Button type="submit" disabled={addItem.isPending || !product}>
               Agregar
             </Button>
           </div>
@@ -232,40 +218,13 @@ export function ShoppingListDetailPage() {
       ) : (
         <ul aria-label="Ítems de la lista" className="flex flex-col gap-1">
           {items.map((item) => (
-            <li
+            <ShoppingItemRow
               key={item.id}
-              className="flex items-center gap-3 rounded-md border border-border px-3 py-2"
-            >
-              <input
-                id={`item-${item.id}`}
-                type="checkbox"
-                checked={item.checked}
-                disabled={!isOpen}
-                onChange={(e) => handleToggle(item.id, e.target.checked)}
-                className="size-6 shrink-0"
-              />
-              <label
-                htmlFor={`item-${item.id}`}
-                className={`min-w-0 flex-1 break-words text-sm ${item.checked ? 'text-muted-foreground line-through' : ''}`}
-              >
-                <span className="font-medium">{item.product.name}</span>{' '}
-                <span>
-                  {Number(item.quantity)} {UNIT_SHORT_LABELS[item.unit]}
-                </span>
-                {item.note && <span className="block text-xs">{item.note}</span>}
-              </label>
-              {isOpen && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  aria-label={`Quitar ${item.product.name}`}
-                  onClick={() => handleDelete(item.id)}
-                >
-                  Quitar
-                </Button>
-              )}
-            </li>
+              listId={list.id}
+              item={item}
+              readOnly={!isOpen}
+              onMessage={setMessage}
+            />
           ))}
         </ul>
       )}
