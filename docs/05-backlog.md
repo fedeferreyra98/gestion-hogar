@@ -156,7 +156,7 @@ CA: colores accesibles (no solo color); consumo desde la lista en ≤ 2 toques.
 **BL-157 · Sugerencias en la lista [S] · BL-153, BL-109** · `DONE`
 Panel "Te puede faltar" con botón agregar.
 CA: agregar una sugerencia la suma a la lista y la saca del panel.
-Supuestos: `Suggestion` no trae la unidad; al agregar se busca el producto por nombre (`GET /products?q=`) para tomar su `defaultUnit`, con cantidad 1. El panel solo se monta en listas `OPEN`.
+Supuestos: `Suggestion` agrega `defaultUnit` (cambio de contrato) y al agregar se usa cantidad 1 con esa unidad. El panel solo se monta en listas `OPEN` y muestra 5 sugerencias con "Ver más".
 
 **BL-158 · Dashboard y reportes [M] · BL-155, BL-110** · `TODO`
 Gasto mensual, por categoría, evolución de precio de producto (gráficos con Recharts).
