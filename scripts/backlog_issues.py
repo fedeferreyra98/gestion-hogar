@@ -10,8 +10,11 @@ Uso:
   backlog_issues.py --apply              # crea labels, milestones e issues (idempotente)
   backlog_issues.py --refresh-ready          # dry-run: qué issues pasarían a `ready`
   backlog_issues.py --refresh-ready --apply  # aplica el label `ready` a los desbloqueados
+  backlog_issues.py --sync                   # dry-run: qué issues abiertos quedaron viejos
+  backlog_issues.py --sync --apply           # reescribe título, cuerpo y labels de esos issues
 
-Idempotencia: un issue ya existente (título que empieza con "BL-xxx:") se saltea.
+Idempotencia: un issue ya existente (título que empieza con "BL-xxx:") se saltea al crear.
+`--sync` solo toca issues ABIERTOS de tareas del backlog y nunca cambia el label `ready`.
 El label `ready` indica que todas las dependencias están cerradas y la tarea se puede tomar.
 """
 from __future__ import annotations
@@ -187,7 +190,8 @@ def topo_order(tasks: List[Task]) -> List[Task]:
 # --------------------------------------------------------------------------- body
 def docs_to_read(t: Task) -> List[str]:
     text = f"{t.description}\n{t.criteria}"
-    docs = ["`CLAUDE.md` y `docs/README.md` (convenciones y flujo de trabajo)"]
+    docs = ["`CLAUDE.md` y `docs/README.md` (convenciones y flujo de trabajo)",
+            f"`{BACKLOG}` — sección «Mapa del código real» (estructura y patrones vigentes)"]
     ucs = sorted(set(re.findall(r"UC-\d+", text)))
     adrs = sorted(set(re.findall(r"ADR-\d+", text)))
     if ucs:
@@ -305,6 +309,59 @@ def refresh_ready(repo: str, apply: bool) -> None:
     print(f"{changed} issue(s) {'marcados' if apply else 'pasarían'} a ready")
 
 
+MANAGED_PREFIXES = ("fase:", "size:", "area:")
+
+
+def sync_plan(t: Task, issue: dict, numbers: Dict[str, int]) -> dict:
+    """Qué hay que cambiar en un issue existente para que refleje el backlog (vacío = al día)."""
+    plan: dict = {}
+    if issue["title"] != t.issue_title:
+        plan["title"] = t.issue_title
+    body = build_body(t, numbers)
+    if (issue.get("body") or "").replace("\r\n", "\n").strip() != body.strip():
+        plan["body"] = body
+    have = {l["name"] for l in issue.get("labels", []) if l["name"].startswith(MANAGED_PREFIXES)}
+    want = {l for l in t.labels if l.startswith(MANAGED_PREFIXES)}
+    if want - have:
+        plan["add"] = sorted(want - have)
+    if have - want:
+        plan["remove"] = sorted(have - want)
+    return plan
+
+
+def sync_issues(tasks: List[Task], repo: str, only: Optional[set], apply: bool) -> None:
+    data = json.loads(gh("issue", "list", "-R", repo, "--state", "all", "--limit", "1000",
+                         "--json", "number,title,state,body,labels"))
+    by_id: Dict[str, dict] = {}
+    for i in data:
+        m = re.match(r"(BL-\d+):", i["title"])
+        if m:
+            by_id[m.group(1)] = i
+    numbers = {k: v["number"] for k, v in by_id.items()}
+    changed = 0
+    for t in tasks:
+        issue = by_id.get(t.id)
+        if (only and t.id not in only) or issue is None or issue["state"] != "OPEN":
+            continue
+        plan = sync_plan(t, issue, numbers)
+        if not plan:
+            continue
+        changed += 1
+        print(f"{'+' if apply else '~'} #{issue['number']} {t.id}: {', '.join(sorted(plan))}")
+        if apply:
+            args = ["issue", "edit", str(issue["number"]), "-R", repo]
+            if "title" in plan:
+                args += ["--title", plan["title"]]
+            if "add" in plan:
+                args += ["--add-label", ",".join(plan["add"])]
+            if "remove" in plan:
+                args += ["--remove-label", ",".join(plan["remove"])]
+            if "body" in plan:
+                args += ["--body-file", "-"]
+            gh(*args, input=plan.get("body"))
+    print(f"{changed} issue(s) {'actualizados' if apply else 'se actualizarían'}")
+
+
 # --------------------------------------------------------------------------- cli
 def print_table(tasks: List[Task], existing: Dict[str, int]) -> None:
     print(f"{'ID':8} {'Fase':4} {'Sz':2} {'Área':9} {'Ready':5} {'Deps':30} Título")
@@ -326,6 +383,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--only", help="lista de IDs separados por coma")
     ap.add_argument("--repo", help="owner/repo (por defecto el del directorio actual)")
     ap.add_argument("--refresh-ready", action="store_true", help="marca `ready` los issues con dependencias cerradas")
+    ap.add_argument("--sync", action="store_true",
+                    help="actualiza título, cuerpo y labels de los issues abiertos desde el backlog")
     ap.add_argument("--backlog", default=BACKLOG)
     args = ap.parse_args(argv)
 
@@ -338,6 +397,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.refresh_ready:
         refresh_ready(repo_name(args.repo), args.apply)
+        return 0
+    if args.sync:
+        sync_issues(selected, repo_name(args.repo), only, args.apply)
         return 0
     if args.show:
         t = next((t for t in tasks if t.id == args.show), None)
