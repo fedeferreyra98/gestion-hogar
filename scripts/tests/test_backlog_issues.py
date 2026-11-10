@@ -107,6 +107,29 @@ class OrderAndBody(unittest.TestCase):
                   "#1 (BL-001), #2 (BL-002)", "<!-- backlog-id: BL-150 -->", "<!-- deps: 1,2 -->"]:
             self.assertIn(s, body)
 
+    def test_multiline_blocks_and_bullet_criteria(self):
+        text = ("## Fase 1 — X\n\n**BL-010 · Tarea [S] · —** · `TODO`\n**Objetivo.** Algo (UC-13).\n\n"
+                "**Alcance.**\n- uno\n- dos\n\nCA:\n- primero\n- segundo\n")
+        t = bi.parse_backlog(text)[0]
+        self.assertEqual(t.criteria, "- primero\n- segundo")
+        self.assertTrue(t.description.endswith("- dos"))
+        self.assertIn("UC-13", "\n".join(bi.docs_to_read(t)))
+
+    def test_sync_plan(self):
+        t = {t.id: t for t in bi.parse_backlog(SAMPLE)}["BL-150"]
+        numbers = {"BL-001": 1, "BL-002": 2}
+        fresh = {"title": t.issue_title, "body": bi.build_body(t, numbers).replace("\n", "\r\n"),
+                 "labels": [{"name": l} for l in t.labels + ["ready"]]}
+        self.assertEqual(bi.sync_plan(t, fresh, numbers), {})
+        stale = {"title": "BL-150: viejo", "body": "viejo",
+                 "labels": [{"name": "size:L"}, {"name": "ready"}, {"name": "backlog"}]}
+        plan = bi.sync_plan(t, stale, numbers)
+        self.assertEqual(plan["title"], t.issue_title)
+        self.assertIn("<!-- deps: 1,2 -->", plan["body"])
+        self.assertEqual(plan["remove"], ["size:L"])
+        self.assertNotIn("ready", plan["add"])
+        self.assertIn(f"size:{t.size}", plan["add"])
+
     def test_real_backlog_parses_and_is_acyclic(self):
         root = os.path.join(os.path.dirname(__file__), "..", "..")
         with open(os.path.join(root, bi.BACKLOG), encoding="utf-8") as fh:

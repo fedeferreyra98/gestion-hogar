@@ -15,7 +15,7 @@ define require_frontend
 	@if [ "$(HAS_FRONTEND)" != "yes" ]; then echo "⚠ frontend no existe todavía (tarea BL-005). Salteando."; exit 0; fi
 endef
 
-.PHONY: help setup hooks check-secrets test-hooks issues-preview issues-create issues-ready up down reset-db psql logs dev backend frontend seed \
+.PHONY: help setup hooks check-secrets test-hooks issues-preview issues-create issues-ready issues-sync up down reset-db psql logs dev backend frontend seed \
         test test-fast test-backend test-frontend lint build smoke verify
 
 help: ## Lista los comandos
@@ -38,6 +38,9 @@ issues-create: ## Crea labels, milestones e issues en GitHub (idempotente)
 
 issues-ready: ## Marca `ready` los issues cuyas dependencias ya están cerradas
 	python3 -I scripts/backlog_issues.py --refresh-ready --apply
+
+issues-sync: ## Actualiza título, cuerpo y labels de los issues abiertos desde el backlog
+	python3 -I scripts/backlog_issues.py --sync --apply
 
 setup: hooks ## Instala hooks, crea .env (si falta) e instala dependencias
 	@test -f .env || (cp .env.example .env && echo "✔ .env creado desde .env.example")
