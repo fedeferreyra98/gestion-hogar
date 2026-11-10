@@ -308,16 +308,27 @@ describe('SuggestionsPanel', () => {
   })
 
   it('estado vacío y estado de carga', async () => {
+    // La respuesta queda retenida hasta que el test la libera: el estado de carga se observa
+    // con el pedido en vuelo, sin depender de un retardo fijo.
+    let requested = false
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
     server.use(
       http.get(`${API}/shopping-lists/${LIST_ID}`, () => HttpResponse.json(makeList())),
       http.get(`${API}/shopping-lists/${LIST_ID}/suggestions`, async () => {
-        await delay(30)
+        requested = true
+        await gate
         return HttpResponse.json([])
       }),
     )
     renderDetail()
 
+    await waitFor(() => expect(requested).toBe(true))
     expect(await screen.findByText('Cargando sugerencias…')).toHaveAttribute('role', 'status')
+    expect(screen.queryByText(/Por ahora no hay sugerencias/)).not.toBeInTheDocument()
+    release()
     expect(await screen.findByText(/Por ahora no hay sugerencias/)).toBeInTheDocument()
   })
 

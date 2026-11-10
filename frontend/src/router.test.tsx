@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { MemoryRouter } from 'react-router-dom'
 import { AppRoutes } from './AppRoutes'
 import { applyTokens, resetSession } from './auth/session'
+import { emptyPageHandlers } from './test/pageHandlers'
 import { server } from './test/server'
 
 function renderAt(path: string) {
@@ -20,13 +21,15 @@ function renderAt(path: string) {
 
 describe('app shell', () => {
   beforeEach(() => {
-    server.use(
-      http.get('*/shopping-lists', () =>
-        HttpResponse.json({ content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 }),
-      ),
-    )
+    server.use(...emptyPageHandlers)
   })
-  afterEach(() => resetSession())
+  afterEach(() => {
+    // No es redundante con el cleanup() de setup.ts: este afterEach es del describe y corre
+    // ANTES que los de nivel archivo (sequence.hooks solo ordena hooks del mismo nivel).
+    // Desmontar antes de resetear la sesión evita updates fuera de act().
+    cleanup()
+    resetSession()
+  })
 
   it('redirects / to Listas', async () => {
     renderAt('/')
