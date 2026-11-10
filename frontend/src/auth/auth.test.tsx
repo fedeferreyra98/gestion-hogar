@@ -7,6 +7,7 @@ import { AppRoutes } from '@/AppRoutes'
 import { getApiClient, resetApiClient, unwrap } from '@/api/client'
 import { getAccessToken } from '@/api/token'
 import { LoginPage } from '@/pages/LoginPage'
+import { emptyPageHandlers } from '@/test/pageHandlers'
 import { server } from '@/test/server'
 import { AuthProvider } from './AuthProvider'
 import { RequireAuth } from './RequireAuth'
@@ -40,7 +41,10 @@ function renderAt(path: string) {
   )
 }
 
-beforeEach(() => resetApiClient())
+beforeEach(() => {
+  resetApiClient()
+  server.use(...emptyPageHandlers)
+})
 afterEach(() => resetSession())
 
 describe('rutas protegidas', () => {

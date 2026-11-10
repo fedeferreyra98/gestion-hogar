@@ -17,5 +17,11 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
     css: false,
+    // Margen para máquinas cargadas (varios agentes/builds en paralelo): ver BL-015.
+    testTimeout: 10000,
+    hookTimeout: 15000,
+    // afterEach en orden de definición: el cleanup() de setup.ts desmonta antes de que los
+    // afterEach de cada archivo (resetSession, etc.) cambien el estado y disparen warnings de act().
+    sequence: { hooks: 'list' },
   },
 })

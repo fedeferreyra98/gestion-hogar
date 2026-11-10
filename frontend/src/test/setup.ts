@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll, vi } from 'vitest'
 import { server } from './server'
 
@@ -31,6 +31,9 @@ class MemoryStorage implements Storage {
   }
 }
 vi.stubGlobal('localStorage', new MemoryStorage())
+
+// Los findBy*/waitFor usan 1 s por defecto: con la CPU saturada no alcanza (BL-015).
+configure({ asyncUtilTimeout: 5000 })
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
 afterEach(() => {
