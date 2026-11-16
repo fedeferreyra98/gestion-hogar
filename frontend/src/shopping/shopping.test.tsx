@@ -249,23 +249,38 @@ describe('ShoppingListDetailPage', () => {
     await user.click(await screen.findByRole('checkbox', { name: /Leche/ }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No pudimos actualizar Leche.')
-    expect(screen.getByRole('checkbox', { name: /Leche/ })).not.toBeChecked()
-    expect(screen.getByText('0 de 2 tildados')).toBeInTheDocument()
+    // El rollback optimista puede aplicarse un render después del alert.
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: /Leche/ })).not.toBeChecked()
+      expect(screen.getByText('0 de 2 tildados')).toBeInTheDocument()
+    })
   })
 
   it('con dos tildados rápidos, el fallo del primero igual restaura y avisa, y no se revalida hasta el final', async () => {
     let gets = 0
+    let releasePan!: () => void
+    const panGate = new Promise<void>((resolve) => {
+      releasePan = resolve
+    })
+    let releaseLeche!: () => void
+    const lecheGate = new Promise<void>((resolve) => {
+      releaseLeche = resolve
+    })
     server.use(
       http.get(`${API}/shopping-lists/${LIST_ID}`, () => {
         gets += 1
         return HttpResponse.json(makeList())
       }),
       http.patch(`${API}/shopping-lists/${LIST_ID}/items/i1`, async () => {
-        await delay(50)
+        // Falla recién cuando el test ya hizo los dos clicks (con la CPU saturada el segundo
+        // click podía llegar después del fallo y limpiar el aviso).
+        await lecheGate
         return HttpResponse.json(problem(500, 'INTERNAL_ERROR'), { status: 500 })
       }),
       http.patch(`${API}/shopping-lists/${LIST_ID}/items/i2`, async () => {
-        await delay(250)
+        // Compuerta en vez de un delay fijo: el PATCH de Pan sigue en vuelo hasta que el test
+        // lo libera, sin depender de cuánto tarde la máquina en ver el fallo de Leche.
+        await panGate
         return HttpResponse.json({ ...item('i2', 'Pan'), checked: true })
       }),
     )
@@ -274,13 +289,17 @@ describe('ShoppingListDetailPage', () => {
 
     await user.click(await screen.findByRole('checkbox', { name: /Leche/ }))
     await user.click(screen.getByRole('checkbox', { name: /Pan/ }))
+    releaseLeche()
 
     // El PATCH de Leche falla mientras el de Pan sigue en vuelo.
     expect(await screen.findByRole('alert')).toHaveTextContent('No pudimos actualizar Leche.')
-    expect(screen.getByRole('checkbox', { name: /Leche/ })).not.toBeChecked()
-    expect(screen.getByRole('checkbox', { name: /Pan/ })).toBeChecked()
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: /Leche/ })).not.toBeChecked()
+      expect(screen.getByRole('checkbox', { name: /Pan/ })).toBeChecked()
+    })
     expect(gets).toBe(1)
 
+    releasePan()
     await waitFor(() => expect(gets).toBe(2))
   })
 
@@ -288,14 +307,40 @@ describe('ShoppingListDetailPage', () => {
     const bodies: unknown[] = []
     let inFlight = 0
     let maxInFlight = 0
+    // El primer PATCH queda retenido hasta que el test lo libera (después del segundo click):
+    // así el solapamiento no depende de cuánto tarde el segundo click con la CPU saturada.
+    let releaseFirst!: () => void
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    // PATCH del ítem contados al salir del cliente (fetch), no al llegar al handler: es lo que
+    // permite afirmar, sin esperas de reloj, que el segundo todavía no se envió.
+    let patchesSent = 0
+    const realFetch = globalThis.fetch
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const method = input instanceof Request ? input.method : init?.method
+      const url = input instanceof Request ? input.url : String(input)
+      if (method === 'PATCH' && url.endsWith('/items/i1')) patchesSent += 1
+      return realFetch(input, init)
+    })
+    // El GET refleja el estado del "servidor": si siempre devolviera Leche sin tildar, la
+    // revalidación tras el primer PATCH revertiría la UI y, con la CPU saturada, el segundo
+    // click (calculado desde el estado renderizado) enviaría checked: true otra vez.
+    let serverChecked = false
     server.use(
-      http.get(`${API}/shopping-lists/${LIST_ID}`, () => HttpResponse.json(makeList())),
+      http.get(`${API}/shopping-lists/${LIST_ID}`, () =>
+        HttpResponse.json(
+          makeList({ items: [item('i1', 'Leche', serverChecked), item('i2', 'Pan')] }),
+        ),
+      ),
       http.patch(`${API}/shopping-lists/${LIST_ID}/items/i1`, async ({ request }) => {
-        const body = (await request.json()) as { checked: boolean }
-        bodies.push(body)
         inFlight += 1
         maxInFlight = Math.max(maxInFlight, inFlight)
-        await delay(40)
+        const body = (await request.json()) as { checked: boolean }
+        const first = bodies.length === 0
+        bodies.push(body)
+        serverChecked = body.checked
+        if (first) await firstGate
         inFlight -= 1
         return HttpResponse.json({ ...item('i1', 'Leche'), checked: body.checked })
       }),
@@ -305,12 +350,24 @@ describe('ShoppingListDetailPage', () => {
 
     const box = await screen.findByRole('checkbox', { name: /Leche/ })
     await user.click(box)
+    // El tildado se calcula desde el estado renderizado y onMutate es asíncrono (cancelQueries):
+    // hay que esperar al update optimista antes del segundo click, o bajo carga ambos
+    // clicks envían checked: true.
+    await waitFor(() => expect(box).toBeChecked())
+    await waitFor(() => expect(bodies).toHaveLength(1)) // el primer PATCH ya está en vuelo
     await user.click(box)
+    // El update optimista del segundo tildado corre en onMutate, antes de mutationFn: cuando la
+    // UI lo refleja, un segundo PATCH sin encolar ya habría salido del cliente.
+    await waitFor(() => expect(box).not.toBeChecked())
+    expect(patchesSent).toBe(1)
+    expect(bodies).toHaveLength(1)
 
+    releaseFirst()
     await waitFor(() => expect(bodies).toHaveLength(2))
     expect(bodies).toEqual([{ checked: true }, { checked: false }])
+    expect(patchesSent).toBe(2)
     expect(maxInFlight).toBe(1)
-    expect(screen.getByRole('checkbox', { name: /Leche/ })).not.toBeChecked()
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /Leche/ })).not.toBeChecked())
   })
 
   it('una lista archivada es de solo lectura', async () => {
@@ -343,7 +400,7 @@ describe('ShoppingListDetailPage', () => {
 
     await user.click(await screen.findByRole('checkbox', { name: /Leche/ }))
     expect(await screen.findByRole('alert')).toHaveTextContent('ya no está abierta')
-    expect(screen.getByRole('checkbox', { name: /Leche/ })).not.toBeChecked()
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /Leche/ })).not.toBeChecked())
   })
 
   it('agrega un ítem con el ProductPicker', async () => {

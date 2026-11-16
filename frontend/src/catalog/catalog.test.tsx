@@ -9,6 +9,7 @@ import type { Category, Product, ProductInput, ProductPage } from '@/api/types'
 import { AuthProvider } from '@/auth/AuthProvider'
 import { applyTokens, resetSession } from '@/auth/session'
 import { ProductPicker } from '@/catalog/ProductPicker'
+import { advanceUntil, useFakeClock } from '@/test/fakeTimers'
 import { server } from '@/test/server'
 
 const API = 'http://localhost/api/v1'
@@ -69,71 +70,83 @@ function renderCatalogRoute() {
 
 beforeEach(() => resetApiClient())
 afterEach(() => {
+  vi.useRealTimers()
   resetSession()
 })
 
 describe('ProductPicker', () => {
   it('busca productos con debounce (timers falsos) y permite seleccionar uno existente', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    try {
-      const queriesSeen: string[] = []
-      server.use(
-        http.get(`${API}/products`, ({ request }) => {
-          const q = new URL(request.url).searchParams.get('q')
-          if (q) queriesSeen.push(q)
-          const matches = q && 'leche entera'.includes(q.toLowerCase()) ? [LECHE] : []
-          return HttpResponse.json(makePage(matches))
-        }),
-      )
+    useFakeClock()
+    const queriesSeen: string[] = []
+    server.use(
+      http.get(`${API}/products`, ({ request }) => {
+        const q = new URL(request.url).searchParams.get('q')
+        if (q) queriesSeen.push(q)
+        const matches = q && 'leche entera'.includes(q.toLowerCase()) ? [LECHE] : []
+        return HttpResponse.json(makePage(matches))
+      }),
+    )
 
-      const onSelect = vi.fn()
-      renderWithQuery(<ProductPicker onSelect={onSelect} />)
+    const onSelect = vi.fn()
+    renderWithQuery(<ProductPicker onSelect={onSelect} />)
 
-      const input = screen.getByRole('combobox', { name: 'Producto' })
-      // user-event/RTL helpers wait on real timers, so drive the input with fireEvent here.
-      fireEvent.focus(input)
-      for (const text of ['l', 'le', 'lec', 'lech', 'leche']) {
-        fireEvent.change(input, { target: { value: text } })
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(50)
-        })
-      }
-
-      // 299 ms since the last key (debounce is 300): nothing queried yet
+    const input = screen.getByRole('combobox', { name: 'Producto' })
+    // user-event/RTL helpers wait on real timers, so drive the input with fireEvent here.
+    fireEvent.focus(input)
+    for (const text of ['l', 'le', 'lec', 'lech', 'leche']) {
+      fireEvent.change(input, { target: { value: text } })
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(249)
+        await vi.advanceTimersByTimeAsync(50)
       })
-      expect(queriesSeen).toEqual([])
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1)
-      })
-      // Let the request and React Query flush (still with fake timers).
-      for (let i = 0; i < 5; i++) {
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(20)
-        })
-      }
-      const option = screen.getByRole('option', { name: /Leche entera/i })
-      expect(queriesSeen).toEqual(['leche'])
-
-      fireEvent.click(option)
-      expect(onSelect).toHaveBeenCalledWith(LECHE)
-    } finally {
-      vi.useRealTimers()
     }
+
+    // 299 ms since the last key (debounce is 300): nothing queried yet
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(249)
+    })
+    expect(queriesSeen).toEqual([])
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    // Let the request and React Query flush (still with fake timers), however long it takes.
+    await advanceUntil(() => {
+      expect(screen.getByRole('option', { name: /Leche entera/i })).toBeInTheDocument()
+    })
+    expect(queriesSeen).toEqual(['leche'])
+
+    fireEvent.click(screen.getByRole('option', { name: /Leche entera/i }))
+    expect(onSelect).toHaveBeenCalledWith(LECHE)
   })
 
   it('no ofrece Crear mientras corre el debounce o la búsqueda del texto actual', async () => {
-    server.use(http.get(`${API}/products`, () => HttpResponse.json(makePage([LECHE]))))
+    // Las respuestas quedan retenidas hasta que el test las libera: así "la búsqueda del texto
+    // actual sigue en curso" no depende de cuánto tarde userEvent.type con la CPU saturada
+    // (si no, una consulta con texto parcial podría asentarse y ofrecer Crear legítimamente).
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    server.use(
+      http.get(`${API}/products`, async () => {
+        await gate
+        return HttpResponse.json(makePage([LECHE]))
+      }),
+    )
     renderWithQuery(<ProductPicker onSelect={vi.fn()} debounceMs={50} />)
 
     const input = screen.getByRole('combobox', { name: 'Producto' })
     await userEvent.type(input, 'Leche entera')
     expect(screen.queryByRole('option', { name: /Crear/ })).not.toBeInTheDocument()
 
-    expect(await screen.findByRole('option', { name: /Leche entera/ })).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: /Crear/ })).not.toBeInTheDocument()
+    release()
+    // Al liberar llegan también las respuestas de textos parciales: se espera al estado final
+    // (sin "Buscando…") y se asierta todo en el mismo instante, no sobre un nodo transitorio.
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      expect(screen.getByRole('option', { name: /Leche entera/ })).toBeInTheDocument()
+      expect(screen.queryByRole('option', { name: /Crear/ })).not.toBeInTheDocument()
+    })
   })
 
   it('muestra un producto archivado como no disponible, sin ofrecer Crear ni permitir elegirlo', async () => {
@@ -236,13 +249,19 @@ describe('ProductPicker', () => {
 
   it('muestra un error con reintento si falla la búsqueda, sin ofrecer Crear', async () => {
     let fail = true
+    const seen: (string | null)[] = []
     server.use(
-      http.get(`${API}/products`, () =>
-        fail ? new HttpResponse(null, { status: 500 }) : HttpResponse.json(makePage([LECHE])),
-      ),
+      http.get(`${API}/products`, ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get('q'))
+        return fail ? new HttpResponse(null, { status: 500 }) : HttpResponse.json(makePage([LECHE]))
+      }),
     )
     renderWithQuery(<ProductPicker onSelect={vi.fn()} debounceMs={10} />)
     await userEvent.type(screen.getByRole('combobox', { name: 'Producto' }), 'Leche')
+    // Con la CPU saturada el debounce de 10 ms puede dispararse con textos parciales ('L', 'Le'…),
+    // y el error de una consulta intermedia se reemplaza al cambiar la clave: se espera a que
+    // se consulte el texto final antes de asertar el error.
+    await waitFor(() => expect(seen).toContain('Leche'))
 
     expect(await screen.findByText('No pudimos buscar productos.')).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: /Crear/ })).not.toBeInTheDocument()
@@ -573,6 +592,12 @@ describe('CatalogPage — ABM de categorías y productos', () => {
 
   it('busca con debounce y pagina manteniendo la lista y los controles visibles', async () => {
     const seen: string[] = []
+    // La página 2 queda retenida hasta que el test la libera: "mientras carga" no depende de
+    // un retardo fijo ni de cuánto tarde el click con la CPU saturada.
+    let releasePage1!: () => void
+    const page1Gate = new Promise<void>((resolve) => {
+      releasePage1 = resolve
+    })
     server.use(
       http.get(`${API}/categories`, () => HttpResponse.json([])),
       http.get(`${API}/products`, async ({ request }) => {
@@ -580,7 +605,7 @@ describe('CatalogPage — ABM de categorías y productos', () => {
         const page = Number(url.searchParams.get('page') ?? '0')
         const q = url.searchParams.get('q')
         seen.push(`${q ?? ''}|${page}`)
-        if (page === 1) await new Promise((r) => setTimeout(r, 50))
+        if (page === 1) await page1Gate
         const content = [{ ...LECHE, name: q ? `Resultado ${q}` : `Producto página ${page}` }]
         return HttpResponse.json({ content, page, size: 20, totalElements: 40, totalPages: 2 })
       }),
@@ -591,9 +616,12 @@ describe('CatalogPage — ABM de categorías y productos', () => {
     expect(screen.getByText('Página 1 de 2')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
-    // Mientras carga la página 2 se conserva la lista anterior y la paginación
+    // Mientras carga la página 2 (pedido ya en vuelo, respuesta retenida) se conserva la lista
+    // anterior y la paginación
+    await waitFor(() => expect(seen).toContain('|1'))
     expect(screen.getByText('Producto página 0')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Siguiente' })).toBeInTheDocument()
+    releasePage1()
     expect(await screen.findByText('Producto página 1')).toBeInTheDocument()
     expect(screen.getByText('Página 2 de 2')).toBeInTheDocument()
 

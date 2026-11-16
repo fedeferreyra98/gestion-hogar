@@ -9,6 +9,7 @@ import { resetApiClient } from '@/api/client'
 import type { Expense, ExpensePage } from '@/api/hooks/useExpenses'
 import { AuthProvider } from '@/auth/AuthProvider'
 import { applyTokens, resetSession } from '@/auth/session'
+import { advanceUntil, useFakeClock } from '@/test/fakeTimers'
 import { server } from '@/test/server'
 
 const API = 'http://localhost/api/v1'
@@ -116,7 +117,10 @@ beforeEach(() => {
   resetApiClient()
   useBaseHandlers()
 })
-afterEach(() => resetSession())
+afterEach(() => {
+  vi.useRealTimers()
+  resetSession()
+})
 
 describe('Gastos: histórico', () => {
   it('lista gastos con total filtrado por moneda y origen en texto', async () => {
@@ -489,31 +493,24 @@ describe('Gastos: filtros y URL robustos', () => {
     await screen.findByRole('list', { name: 'Gastos' })
     const before = qs.length
 
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    try {
-      const input = screen.getByLabelText('Buscar en la descripción')
-      for (const text of ['v', 've', 'ver', 'verd']) {
-        fireEvent.change(input, { target: { value: text } })
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(100)
-        })
-      }
-      expect(qs.length).toBe(before)
-      expect(currentUrl).toBe('/gastos')
-
+    useFakeClock()
+    const input = screen.getByLabelText('Buscar en la descripción')
+    for (const text of ['v', 've', 'ver', 'verd']) {
+      fireEvent.change(input, { target: { value: text } })
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(250)
+        await vi.advanceTimersByTimeAsync(100)
       })
-      for (let i = 0; i < 5; i++) {
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(20)
-        })
-      }
+    }
+    expect(qs.length).toBe(before)
+    expect(currentUrl).toBe('/gastos')
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250)
+    })
+    await advanceUntil(() => {
       expect(currentUrl).toBe('/gastos?q=verd')
       expect(qs.slice(before)).toEqual(['verd'])
-    } finally {
-      vi.useRealTimers()
-    }
+    })
   })
 
   it('la caja de búsqueda se resincroniza cuando la URL cambia desde afuera', async () => {
