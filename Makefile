@@ -86,9 +86,9 @@ test-fast: ## Nivel 1: unit tests sin Docker (segundos)
 	$(call require_frontend)
 	@if [ "$(HAS_FRONTEND)" = "yes" ]; then cd frontend && npm run test -- --run; fi
 
-test-backend: ## Nivel 2: todos los tests backend (usa Testcontainers → requiere Docker; reutiliza el contenedor)
+test-backend: ## Nivel 2: todos los tests backend (usa Testcontainers → requiere Docker; reutiliza el contenedor, uno por worktree; sin reuse en CI)
 	$(call require_backend)
-	@if [ "$(HAS_BACKEND)" = "yes" ]; then cd backend && TESTCONTAINERS_REUSE_ENABLE=true ./gradlew test; fi
+	@if [ "$(HAS_BACKEND)" = "yes" ]; then cd backend && if [ -n "$$CI" ]; then TESTCONTAINERS_REUSE_ENABLE=false ./gradlew test; else TESTCONTAINERS_REUSE_ENABLE=true ./gradlew test; fi; fi
 
 test-frontend: ## Tests frontend (Vitest + MSW, sin backend real)
 	$(call require_frontend)

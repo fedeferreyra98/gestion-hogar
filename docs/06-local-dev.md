@@ -60,7 +60,10 @@ Reglas para agentes:
 - Loguear SQL solo si `LOG_SQL=true`.
 
 Tests de integración:
-- Un único contenedor Postgres compartido por toda la suite (singleton container) y `testcontainers.reuse.enable=true` en `~/.testcontainers.properties` para reutilizarlo entre corridas.
+- Un único contenedor Postgres compartido por toda la suite (singleton container); `make test-backend` exporta `TESTCONTAINERS_REUSE_ENABLE=true` para reutilizarlo entre corridas.
+- El reuse es **por worktree** (BL-016): el contenedor lleva la etiqueta `hogar.test-scope=<hash>` (SHA-256 de la ruta canónica de `backend/` + nombre y contenido de las migraciones). Testcontainers incluye las etiquetas en el hash de reuse, así que dos worktrees, o una migración nueva/modificada, usan contenedores distintos y pueden correr `make test-backend` a la vez sin falsos fallos de Flyway.
+- En CI (variable `CI` definida) no se usa reuse: el Makefile fuerza `TESTCONTAINERS_REUSE_ENABLE=false` y `IntegrationTestBase` usa `withReuse(false)`. `make test-fast` no usa Docker y no cambia.
+- Contenedores huérfanos: cada cambio de migraciones o worktree nuevo deja un contenedor reutilizable (`postgres:16-alpine`, sin nombre fijo). Listarlos con `docker ps -a --filter label=hogar.test-scope --format '{{.ID}} {{.Names}} {{.Label "hogar.test-scope"}}'` y borrar los que ya no sirvan con `docker rm -f <id>` (o todos: `docker rm -f $(docker ps -aq --filter label=hogar.test-scope)`). Solo borran contenedores con esa etiqueta; no tocan `hogar-postgres` (compose de dev) ni otros.
 - Cada test que escribe datos limpia sus tablas (`@Sql` o `TRUNCATE ... CASCADE` en `@BeforeEach`) en vez de recrear el contexto.
 - `Clock` inyectable para tests de vencimientos (ya requerido en BL-106).
 
